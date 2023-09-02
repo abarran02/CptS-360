@@ -1,25 +1,23 @@
 // you need to include -lrt flag (i.e., real-time libraries or librt)
 // to compile this code
 
-#include <fcntl.h>
-#include <stdarg.h>
+#include <fcntl.h>   /* for O_RDONLY */
+#include <stdarg.h>  /* for va_list */
+#include <stdint.h>  /* for uint64 definition */
 #include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>    /* for uint64 definition */
-#include <string.h>
+#include <stdlib.h>  /* for exit() */
 #include <time.h>    /* for clock_gettime */
-#include <unistd.h>
+#include <unistd.h>  /* for STDOUT_FILENO */
+#include "cat.c"
 
 #define BILLION 1000000000L
-#define MAXLINE 4096    // maximum line length for bash
 
 int cathw(int argc, char *argv[]);
 static void error(char *fmt, ...);
 
 int main(int argc, char *argv[]) {
-    uint64_t diffCathw, diffCat, diffTotal;
+    uint64_t runtimeCathw, runtimeCat, diffTotal;
     struct timespec start, end;
-    char buffer[MAXLINE] = "cat";
     int i, bufferSize;
 
     // measure time for cathw
@@ -28,26 +26,21 @@ int main(int argc, char *argv[]) {
     clock_gettime(CLOCK_MONOTONIC, &end);    // mark the end time
 
     // calcuate difference
-    diffCathw = BILLION * (end.tv_sec - start.tv_sec) + end.tv_nsec - start.tv_nsec;
-    printf("Run time of cathw = %llu nanoseconds\n", (long long unsigned int) diffCathw);
+    runtimeCathw = BILLION * (end.tv_sec - start.tv_sec) + end.tv_nsec - start.tv_nsec;
+    printf("Run time of cathw = %llu nanoseconds\n", (long long unsigned int) runtimeCathw);
 
-    // build string for cat call
-    for (i = 1; i < argc; i++) {
-        strcat(buffer, " ");
-        strcat(buffer, argv[i]);
-    }
     // measure time for system cat
     clock_gettime(CLOCK_MONOTONIC, &start);    // mark start time
-    system(buffer);    // call cat routine
+    cat(argc, argv);
     clock_gettime(CLOCK_MONOTONIC, &end);    // mark the end time
 
     // calcuate difference
-    diffCat = BILLION * (end.tv_sec - start.tv_sec) + end.tv_nsec - start.tv_nsec;
-    printf("Run time of system cat = %llu nanoseconds\n", (long long unsigned int) diffCat);
+    runtimeCat = BILLION * (end.tv_sec - start.tv_sec) + end.tv_nsec - start.tv_nsec;
+    printf("Run time of system cat = %llu nanoseconds\n", (long long unsigned int) runtimeCat);
 
     // difference between cathw and cat
-    diffTotal = diffCat - diffCathw;
-    printf("cathw runs %llu nanoseconds faster than system cat\n", (long long unsigned int) diffTotal);
+    diffTotal = runtimeCathw - runtimeCat;
+    printf("cat.c runs %llu nanoseconds faster than cathw\n", (long long unsigned int) diffTotal);
 
     return 0;
 }

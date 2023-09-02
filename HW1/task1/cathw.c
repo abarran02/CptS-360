@@ -1,8 +1,8 @@
-#include <fcntl.h>
-#include <stdarg.h>
+#include <fcntl.h>   /* for O_RDONLY */
+#include <stdarg.h>  /* for va_list */
 #include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
+#include <stdlib.h>  /* for exit() */
+#include <unistd.h>  /* for STDOUT_FILENO */
 
 static void filecopy(int ifd, int ofd);
 static void error(char *fmt, ...); // can be used to generate error message
