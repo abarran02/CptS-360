@@ -22,24 +22,27 @@ NODE* jumpToRoot(NODE *cwd) {
 
 NavState navigateToPath(NODE *cwd, char *pathname, int newNode) {
     const char delim[2] = "/";
-    char *token = strtok(pathname, delim);
     NODE *currentChild;
     NODE *nwd = cwd; // start new working dir at cwd
     int found;
 
-    if (pathname == NULL) {
+    // don't want strtok to mutate pathname
+    char pathnameCpy[MAX_LINE];
+    strcpy(pathnameCpy, pathname);
+
+    if (pathnameCpy == NULL) {
         nwd = jumpToRoot(nwd);
         return (NavState) { nwd, SUCCESS };
     }
 
     // if path is absolute
-    if (pathname[0] == '/') {
+    if (pathnameCpy[0] == '/') {
         nwd = jumpToRoot(nwd);
-        // next token, as token is empty to start
-        token = strtok(NULL, delim);
     }
 
-    // iterate over pathname
+    char *token = strtok(pathnameCpy, delim);
+
+    // iterate over pathnameCpy
     while (token != NULL) {
         if (strcmp(token, ".") == 0) {
             // points to cwd
@@ -212,10 +215,8 @@ int cd(NODE **cwd, char *pathname) {
     return SUCCESS;
 }
 
-int pwd(NODE *cwd) {
-    /* Print the (absolute) pathname of CWD. */
-    char prependString[4096] = "";
-    char pathString[4096] = "";
+void absoluteWd(NODE *cwd, char *pathString) {
+    char prependString[MAX_LINE] = "";
 
     while (!(cwd->parent == cwd)) {
         strcpy(prependString, cwd->name);
@@ -225,7 +226,12 @@ int pwd(NODE *cwd) {
 
         cwd = cwd->parent;
     }
+}
 
+int pwd(NODE *cwd) {
+    /* Print the (absolute) pathname of CWD. */
+    char pathString[MAX_LINE] = "";
+    absoluteWd(cwd, pathString);
     printf("/%s\n", pathString);
 }
 
@@ -257,13 +263,57 @@ int rm(NODE *cwd, char *pathname) {
 
 int reload(NODE *root, char *filename) {
     /* Re-initalize the filesystem tree from the file filename. */
+    FILE* file = fopen(filename, "r"); /* should check the result */
+    char line[MAX_LINE], *token;
+    const char delim[3] = " \n";
+
+    while (fgets(line, sizeof(line), file)) {
+        /* note that fgets don't strip the terminating \n, checking its
+           presence would allow to handle lines longer that sizeof(line) */
+
+        token = strtok(line, delim);
+        if (strcmp(token, "D") == 0) {
+            token = strtok(NULL, delim);
+            token[strcspn(token, "\n")] = 0;
+
+            mkdir(root, token);
+        } else if (strcmp(token, "F") == 0) {
+            token = strtok(NULL, delim);
+            token[strcspn(token, "\n")] = 0;
+
+            creat(root, token);
+        } else {
+            return WRONG_TYPE;
+        }
+    }
+}
+
+void saveRecursive(FILE *fp, NODE *nodePtr) {
+    NODE *curNode = nodePtr->child;
+    char pathString[MAX_LINE] = "";
+    absoluteWd(nodePtr, pathString);
+
+    fprintf(fp, "%c /%s\n", nodePtr->type, pathString);
+
+    while (curNode != NULL) {
+        saveRecursive(fp, curNode);
+        curNode = curNode->sibling;
+    }
 }
 
 int save(NODE *root, char *filename) {
     /* Save the current filesystem tree in the file filename. */
+    FILE *fp = fopen(filename, "w+"); // open a file stream
+    if (fp == NULL) {
+        return NOT_FOUND;
+    }
+
+    saveRecursive(fp, root);
+
+    fclose(fp); // close file stream when done
 }
 
-int quit(NODE *root) {
+void quit(NODE *root) {
     /* Save the filesystem tree in filename fssim_lastname.txt, then terminate the program.
     The "lastname" is your surname. */
     save(root, "fssim_barran.txt");

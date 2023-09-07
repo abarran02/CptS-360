@@ -101,13 +101,13 @@ int main() {
                 }
                 break;
             case 7:
-                status = reload(cwd, args);
+                status = reload(root, args);
                 break;
             case 8:
-                status = save(cwd, args);
+                status = save(root, args);
                 break;
             case 9:
-                status = quit(cwd);
+                quit(root);
                 break;
         }
     }
