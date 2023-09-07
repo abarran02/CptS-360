@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef struct node {
 	char name[64];
@@ -7,13 +8,16 @@ typedef struct node {
 	struct node *child, *sibling, *parent;
 } NODE;
 
-int mkdir(NODE *cwd, char *newDir);
-int rmdir(NODE *cwd, char *rmTarget);
-int ls(NODE *cwd);
-int cd(NODE *cwd, char *newDir);
+void cdToRoot(NODE *cwd);
+NODE* navigateToPath(NODE *cwd, char *pathname);
+
+int mkdir(NODE *cwd, char *pathname);
+int rmdir(NODE *cwd, char *pathname);
+int ls(NODE *cwd, char* pathname);
+int cd(NODE *cwd, char *pathname);
 int pwd(NODE *cwd);
-int creat(NODE *cwd, char *fileTarget);
-int rm(NODE *cwd, char *rmTarget);
-int reload(NODE *cwd, char *filename);
-int save(NODE *cwd, char *filename);
-int quit(NODE *cwd);
+int creat(NODE *cwd, char *pathname);
+int rm(NODE *cwd, char *pathname);
+int reload(NODE *root, char *filename);
+int save(NODE *root, char *filename);
+int quit(NODE *root);
