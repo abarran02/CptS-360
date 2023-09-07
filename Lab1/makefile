@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-I.
+CFLAGS=-I. -g
 name=lab1_barran
 OBJS=$(name).o commands.o
 

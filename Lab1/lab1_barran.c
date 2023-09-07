@@ -25,8 +25,8 @@ int initialize() {
     root = (NODE *)malloc(sizeof(NODE));
     strcpy(root->name, "/");
     root->parent = root;
-    root->sibling = 0;
-    root->child = 0;
+    root->sibling = NULL;
+    root->child = NULL;
     root->type = 'D';
     cwd = root;
     printf("Filesystem initialized!\n");
@@ -48,6 +48,10 @@ int main() {
         command[strcspn(command, "\n")] = 0; // remove newline char, https://stackoverflow.com/a/28462221
         args = strtok(NULL, delim);
 
+        if (args != NULL) {
+            args[strcspn(args, "\n")] = 0;
+        }
+
         switch (find_command(command)) {
             case -1:
                 printf("Unknown command: %s\n", command);
@@ -62,11 +66,7 @@ int main() {
                 status = ls(cwd, args);
                 break;
             case 3:
-                if (args == NULL) {
-                    status = cd(root, args);
-                } else {
-                    status = cd(cwd, args);
-                }
+                status = cd(&cwd, args);
                 break;
             case 4:
                 status = pwd(cwd);
