@@ -13,13 +13,14 @@ char* parseLowestFile(char *pathname) {
     return lowest;
 }
 
-void jumpToRoot(NODE *cwd) {
+NODE* jumpToRoot(NODE *cwd) {
     while (cwd->parent != cwd) {
         cwd = cwd->parent;
     }
+    return cwd;
 }
 
-NODE* navigateToPath(NODE *cwd, char *pathname, int newNode) {
+NavState navigateToPath(NODE *cwd, char *pathname, int newNode) {
     const char delim[2] = "/";
     char *token = strtok(pathname, delim);
     NODE *currentChild;
@@ -27,13 +28,13 @@ NODE* navigateToPath(NODE *cwd, char *pathname, int newNode) {
     int found;
 
     if (pathname == NULL) {
-        jumpToRoot(nwd);
-        return nwd;
+        nwd = jumpToRoot(nwd);
+        return (NavState) { nwd, SUCCESS };
     }
 
     // if path is absolute
     if (pathname[0] == '/') {
-        jumpToRoot(nwd);
+        nwd = jumpToRoot(nwd);
         // next token, as token is empty to start
         token = strtok(NULL, delim);
     }
@@ -66,11 +67,11 @@ NODE* navigateToPath(NODE *cwd, char *pathname, int newNode) {
                 if (newNode) {
                     token = strtok(NULL, delim);
                     if (token == NULL) {
-                        return nwd;
+                        return (NavState) { nwd, SUCCESS };
                     }
                 }
 
-                return NULL;
+                return (NavState) { NULL, NOT_FOUND };
             }
         }
 
@@ -79,10 +80,10 @@ NODE* navigateToPath(NODE *cwd, char *pathname, int newNode) {
 
     // should be new, but already exists
     if (newNode) {
-        return NULL;
+        return (NavState) { NULL, ALREADY_EXISTS };
     }
 
-    return nwd;
+    return (NavState) { nwd, SUCCESS };
 }
 
 void rmHelper(NODE *filePtr) {
@@ -107,13 +108,15 @@ void rmHelper(NODE *filePtr) {
 }
 
 int newFile(NODE *cwd, char *pathname, char type) {
-    NODE *nwd = navigateToPath(cwd, pathname, 1);
+    NavState navigate = navigateToPath(cwd, pathname, 1);
+
+    if (navigate.status != SUCCESS) {
+        return navigate.status;
+    }
+
+    NODE *nwd = navigate.nwd;
     NODE *workingFile;
     char *filename;
-
-    if (nwd == NULL) {
-        return -1;  // already exists or target directory doesn't exist
-    }
 
     if (nwd->child == NULL) {
         nwd->child = (NODE *)malloc(sizeof(NODE));
@@ -131,13 +134,13 @@ int newFile(NODE *cwd, char *pathname, char type) {
     }
 
     filename = parseLowestFile(pathname);
-    
+
     strcpy(workingFile->name, filename);
     workingFile->sibling = NULL;
     workingFile->child = NULL;
     workingFile->type = type;
 
-    return 1;
+    return SUCCESS;
 }
 
 int mkdir(NODE *cwd, char *pathname) {
@@ -153,63 +156,64 @@ int rmdir(NODE *cwd, char *pathname) {
     − The directory specified in pathname does not exist (DIR pathname does not exist!)
     − The directory is not empty (Cannot remove DIR pathname (not empty)!).
     */
-    NODE *nwd = navigateToPath(cwd, pathname, 0);
+    NavState navigate = navigateToPath(cwd, pathname, 0);
 
-    if (nwd == NULL) {
-        return -1;  // directory not found
-    } else if (nwd->child != NULL) {
-        return -2;  // directory not empty
+    if (navigate.status != SUCCESS) {
+        return navigate.status;
+    }
+
+    NODE *nwd = navigate.nwd;
+
+    if (nwd->child != NULL) {
+        return DIR_NOT_EMPTY;
+    } else if (nwd->type != 'D') {
+        return WRONG_TYPE;  // not a directory
     }
 
     rmHelper(nwd);
+    return SUCCESS;
 }
 
 int ls(NODE *cwd, char *pathname) {
     /* List the directory contents of pathname or CWD (if pathname not specified).
     Display an error message (No such file or directory: pathname) for an invalid pathname. */
-    NODE *nwd = navigateToPath(cwd, pathname, 0);
+    NODE *curChild;
 
-    if (nwd == NULL) {
-        return -1;
+    if (pathname == NULL) {
+        curChild = cwd->child;
+    } else {
+        NavState navigate = navigateToPath(cwd, pathname, 0);
+
+        if (navigate.status != SUCCESS) {
+            return navigate.status;
+        }
+
+        curChild = navigate.nwd->child;
     }
-
-    NODE *curChild = nwd->child;
 
     while (curChild != NULL) {
         printf("%c %s\n", curChild->type, curChild->name);
         curChild = curChild->sibling;
     }
 
-    return 1;
+    return SUCCESS;
 }
 
 int cd(NODE **cwd, char *pathname) {
     /* Change CWD to pathname, or to / if no pathname specified.
     Display an error message (No such file or directory: pathname) for an invalid pathname. */
-    if (pathname == NULL) {
-        while ((*cwd)->parent != *cwd) {
-            *cwd = (*cwd)->parent;
-        }
+    NavState navigate = navigateToPath(*cwd, pathname, 0);
+
+    if (navigate.status != SUCCESS) {
+        return navigate.status;
     }
 
-    NODE *nwd = navigateToPath(*cwd, pathname, 0);
-
-    if (nwd != NULL) {
-        // path found, change cwd and return success
-        *cwd = nwd;
-        return 1;
-    } else {
-        // path not found
-        return -1;
-    }
+    *cwd = navigate.nwd;
+    return SUCCESS;
 }
 
 int pwd(NODE *cwd) {
     /* Print the (absolute) pathname of CWD. */
-    //char pathString[4096] = "";
-
-    //pwdHelper(cwd, &pathString);
-
     char prependString[4096] = "";
     char pathString[4096] = "";
 
@@ -235,15 +239,20 @@ int rm(NODE *cwd, char *pathname) {
     /* Remove the FILE node specified by pathname.
     Display an error message (File pathname does not exist!) if there no such file exists.
     Display an error message (Cannot remove pathname (not a FILE)!) if pathname is not a FILE. */
-    NODE *nwd = navigateToPath(cwd, pathname, 0);
+    NavState navigate = navigateToPath(cwd, pathname, 0);
 
-    if (nwd == NULL) {
-        return -1;  // file does not exist
-    } else if (nwd->type != 'F') {
-        return -2;  // is not a file
+    if (navigate.status != SUCCESS) {
+        return navigate.status;
+    }
+
+    NODE *nwd = navigate.nwd;
+
+    if (nwd->type != 'F') {
+        return WRONG_TYPE;  // not a file
     }
 
     rmHelper(nwd);
+    return SUCCESS;
 }
 
 int reload(NODE *root, char *filename) {

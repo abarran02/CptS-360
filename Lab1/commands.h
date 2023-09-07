@@ -8,9 +8,22 @@ typedef struct node {
 	struct node *child, *sibling, *parent;
 } NODE;
 
+enum State {
+	SUCCESS,
+	NOT_FOUND,
+	ALREADY_EXISTS,
+	DIR_NOT_EMPTY,
+	WRONG_TYPE
+};
+
+typedef struct navState {
+	NODE *nwd;
+	enum State status;
+} NavState;
+
 char* parseLowestFile(char *pathname);
-void jumpToRoot(NODE *cwd);
-NODE* navigateToPath(NODE *cwd, char *pathname, int newNode);
+NODE* jumpToRoot(NODE *cwd);
+NavState navigateToPath(NODE *cwd, char *pathname, int newNode);
 void rmHelper(NODE *filePtr);
 int newFile(NODE *cwd, char *pathname, char type);
 

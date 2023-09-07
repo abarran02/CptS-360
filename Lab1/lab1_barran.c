@@ -37,7 +37,6 @@ int main() {
     const char delim[2] = " ";
     int status;
     initialize();
-    // other initialization as needed
 
     while(1) {
         printf("Enter command: ");
@@ -58,24 +57,48 @@ int main() {
                 break;
             case 0:
                 status = mkdir(cwd, args);
+                if (status == ALREADY_EXISTS) {
+                    printf("Unable to create directory '%s': File exists\n", args);
+                }
                 break;
             case 1:
                 status = rmdir(cwd, args);
+                if (status == NOT_FOUND) {
+                    printf("Unable to remove directory '%s': Does not exist\n", args);
+                } else if (status == DIR_NOT_EMPTY) {
+                    printf("Unable to remove directory '%s': Directory not empty\n", args);
+                } else if (status == WRONG_TYPE) {
+                    printf("Unable to remove directory '%s': Not a directory\n", args);
+                }
                 break;
             case 2:
                 status = ls(cwd, args);
+                if (status == NOT_FOUND) {
+                    printf("Cannot access '%s': No such file or directory\n", args);
+                }
                 break;
             case 3:
                 status = cd(&cwd, args);
+                if (status == NOT_FOUND) {
+                    printf("Cannot access '%s': Directory not found\n", args);
+                }
                 break;
             case 4:
                 status = pwd(cwd);
                 break;
             case 5:
                 status = creat(cwd, args);
+                if (status == ALREADY_EXISTS) {
+                    printf("Unable to create file '%s': File exists\n", args);
+                }
                 break;
             case 6:
                 status = rm(cwd, args);
+                if (status == NOT_FOUND) {
+                    printf("Unable to remove file '%s': Does not exist\n", args);
+                } else if (status == WRONG_TYPE) {
+                    printf("Unable to remove file '%s': Not a file\n", args);
+                }
                 break;
             case 7:
                 status = reload(cwd, args);
