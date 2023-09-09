@@ -5,6 +5,7 @@ char* parseLowestFile(char *pathname) {
     char *token = strtok(pathname, delim);
     char *lowest;
 
+    // iterate to end of string and save last pathname
     while (token != NULL) {
         lowest = token;
         token = strtok(NULL, delim);
@@ -14,6 +15,7 @@ char* parseLowestFile(char *pathname) {
 }
 
 NODE* jumpToRoot(NODE *cwd) {
+    // iterate to root, which points to itself as parent
     while (cwd->parent != cwd) {
         cwd = cwd->parent;
     }
@@ -30,6 +32,7 @@ NavState navigateToPath(NODE *cwd, char *pathname, int newNode) {
     char pathnameCpy[MAX_LINE];
     strcpy(pathnameCpy, pathname);
 
+    // no argument provided, go to '/'
     if (pathnameCpy == NULL) {
         nwd = jumpToRoot(nwd);
         return (NavState) { nwd, SUCCESS };
@@ -45,7 +48,7 @@ NavState navigateToPath(NODE *cwd, char *pathname, int newNode) {
     // iterate over pathnameCpy
     while (token != NULL) {
         if (strcmp(token, ".") == 0) {
-            // points to cwd
+            // points to nwd
             ;
         } else if (strcmp(token, "..") == 0) {
             // points to parent
@@ -55,7 +58,7 @@ NavState navigateToPath(NODE *cwd, char *pathname, int newNode) {
             // search all children for matching subdirectory
             currentChild = nwd->child;
             while (currentChild != NULL) {
-                // match found, set cwd and break
+                // match found
                 if (strcmp(token, currentChild->name) == 0) {
                     nwd = currentChild;
                     found = 1;
@@ -67,13 +70,12 @@ NavState navigateToPath(NODE *cwd, char *pathname, int newNode) {
             }
 
             if (!found) {
-                if (newNode) {
-                    token = strtok(NULL, delim);
-                    if (token == NULL) {
-                        return (NavState) { nwd, SUCCESS };
-                    }
+                // if missing file will be created by another function it must be last path node
+                if (newNode && strtok(NULL, delim) == NULL) {
+                    return (NavState) { nwd, SUCCESS };
                 }
 
+                // otherwise the file exist, but doesn't
                 return (NavState) { NULL, NOT_FOUND };
             }
         }
@@ -122,10 +124,12 @@ int newFile(NODE *cwd, char *pathname, char type) {
     char *filename;
 
     if (nwd->child == NULL) {
+        // basename has no children
         nwd->child = (NODE *)malloc(sizeof(NODE));
         nwd->child->parent = nwd;
-        workingFile = nwd->child;  // reduce clutter for initialization
+        workingFile = nwd->child;
     } else {
+        // has children, iterate to last sibling
         nwd = nwd->child;
         while (nwd->sibling != NULL) {
             nwd = nwd->sibling;
@@ -138,6 +142,7 @@ int newFile(NODE *cwd, char *pathname, char type) {
 
     filename = parseLowestFile(pathname);
 
+    // initialize rest of workingFile
     strcpy(workingFile->name, filename);
     workingFile->sibling = NULL;
     workingFile->child = NULL;
@@ -183,6 +188,7 @@ int ls(NODE *cwd, char *pathname) {
     NODE *curChild;
 
     if (pathname == NULL) {
+        // no argument provided
         curChild = cwd->child;
     } else {
         NavState navigate = navigateToPath(cwd, pathname, 0);
@@ -194,6 +200,7 @@ int ls(NODE *cwd, char *pathname) {
         curChild = navigate.nwd->child;
     }
 
+    // iterate over all children
     while (curChild != NULL) {
         printf("%c %s\n", curChild->type, curChild->name);
         curChild = curChild->sibling;
@@ -218,10 +225,19 @@ int cd(NODE **cwd, char *pathname) {
 void absoluteWd(NODE *cwd, char *pathString) {
     char prependString[MAX_LINE] = "";
 
+    // cwd is already root
+    if (cwd->parent == cwd) {
+        strcpy(pathString, "/");
+    }
+
+    // iterate from cwd to root
     while (!(cwd->parent == cwd)) {
-        strcpy(prependString, cwd->name);
-        strcat(prependString, "/");
+        // build string '/cwd'
+        strcpy(prependString, "/");
+        strcat(prependString, cwd->name);
+        // concatenate to existing path, e.g. '/hello/world/cwd'
         strcat(prependString, pathString);
+        // save for next iteration
         strcpy(pathString, prependString);
 
         cwd = cwd->parent;
@@ -230,9 +246,9 @@ void absoluteWd(NODE *cwd, char *pathString) {
 
 int pwd(NODE *cwd) {
     /* Print the (absolute) pathname of CWD. */
-    char pathString[MAX_LINE] = "";
+    char pathString[MAX_LINE] = "";  // to be populated with pathString by absoluteWd
     absoluteWd(cwd, pathString);
-    printf("/%s\n", pathString);
+    printf("%s\n", pathString);
 }
 
 int creat(NODE *cwd, char *pathname) {
@@ -251,38 +267,43 @@ int rm(NODE *cwd, char *pathname) {
         return navigate.status;
     }
 
-    NODE *nwd = navigate.nwd;
-
-    if (nwd->type != 'F') {
+    if (navigate.nwd->type != 'F') {
         return WRONG_TYPE;  // not a file
     }
 
-    rmHelper(nwd);
+    rmHelper(navigate.nwd);
     return SUCCESS;
 }
 
 int reload(NODE *root, char *filename) {
     /* Re-initalize the filesystem tree from the file filename. */
-    FILE* file = fopen(filename, "r"); /* should check the result */
     char line[MAX_LINE], *token;
-    const char delim[3] = " \n";
+    const char delim[3] = " \n";  // two delimiters
+    FILE* fp = fopen(filename, "r");
 
-    while (fgets(line, sizeof(line), file)) {
-        /* note that fgets don't strip the terminating \n, checking its
-           presence would allow to handle lines longer that sizeof(line) */
+    // check file opens successfully
+    if (fp == NULL) {
+        return NOT_FOUND;
+    }
 
+    // iterate over each line of file
+    while (fgets(line, sizeof(line), fp)) {
         token = strtok(line, delim);
+
         if (strcmp(token, "D") == 0) {
+            // if line represents directory
             token = strtok(NULL, delim);
             token[strcspn(token, "\n")] = 0;
 
             mkdir(root, token);
         } else if (strcmp(token, "F") == 0) {
+            // line represents file
             token = strtok(NULL, delim);
             token[strcspn(token, "\n")] = 0;
 
             creat(root, token);
         } else {
+            // malformed file
             return WRONG_TYPE;
         }
     }
@@ -293,8 +314,10 @@ void saveRecursive(FILE *fp, NODE *nodePtr) {
     char pathString[MAX_LINE] = "";
     absoluteWd(nodePtr, pathString);
 
-    fprintf(fp, "%c /%s\n", nodePtr->type, pathString);
+    // save type and path on each line
+    fprintf(fp, "%c %s\n", nodePtr->type, pathString);
 
+    // call for each child node
     while (curNode != NULL) {
         saveRecursive(fp, curNode);
         curNode = curNode->sibling;
@@ -303,14 +326,15 @@ void saveRecursive(FILE *fp, NODE *nodePtr) {
 
 int save(NODE *root, char *filename) {
     /* Save the current filesystem tree in the file filename. */
-    FILE *fp = fopen(filename, "w+"); // open a file stream
+    FILE *fp = fopen(filename, "w+");
+    
+    // check file opens successfully
     if (fp == NULL) {
         return NOT_FOUND;
     }
 
     saveRecursive(fp, root);
-
-    fclose(fp); // close file stream when done
+    fclose(fp);
 }
 
 void quit(NODE *root) {

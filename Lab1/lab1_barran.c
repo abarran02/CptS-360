@@ -102,9 +102,17 @@ int main() {
                 break;
             case 7:
                 status = reload(root, args);
+                if (status == NOT_FOUND) {
+                    printf("Unable to load file '%s': Does not exist", args);
+                } else if (status == WRONG_TYPE) {
+                    printf("Unable to load file '%s': Malformed data", args);
+                }
                 break;
             case 8:
                 status = save(root, args);
+                if (status == NOT_FOUND) {
+                    printf("Unable to write to file '%s'", args);
+                }
                 break;
             case 9:
                 quit(root);
