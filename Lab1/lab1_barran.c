@@ -54,69 +54,65 @@ int main() {
         switch (find_command(command)) {
             case -1:
                 printf("Unknown command: %s\n", command);
-                break;
+                continue;
             case 0:
                 status = mkdir(cwd, args);
-                if (status == ALREADY_EXISTS) {
-                    printf("Unable to create directory '%s': File exists\n", args);
-                }
                 break;
             case 1:
                 status = rmdir(cwd, args);
-                if (status == NOT_FOUND) {
-                    printf("Unable to remove directory '%s': Does not exist\n", args);
-                } else if (status == DIR_NOT_EMPTY) {
+                if (status == DIR_NOT_EMPTY) {
                     printf("Unable to remove directory '%s': Directory not empty\n", args);
+                    continue;
                 } else if (status == WRONG_TYPE) {
                     printf("Unable to remove directory '%s': Not a directory\n", args);
+                    continue;
                 }
                 break;
             case 2:
                 status = ls(cwd, args);
-                if (status == NOT_FOUND) {
-                    printf("Cannot access '%s': No such file or directory\n", args);
-                }
                 break;
             case 3:
                 status = cd(&cwd, args);
-                if (status == NOT_FOUND) {
-                    printf("Cannot access '%s': Directory not found\n", args);
-                }
                 break;
             case 4:
-                status = pwd(cwd);
+                pwd(cwd);
                 break;
             case 5:
                 status = creat(cwd, args);
-                if (status == ALREADY_EXISTS) {
-                    printf("Unable to create file '%s': File exists\n", args);
-                }
                 break;
             case 6:
                 status = rm(cwd, args);
-                if (status == NOT_FOUND) {
-                    printf("Unable to remove file '%s': Does not exist\n", args);
-                } else if (status == WRONG_TYPE) {
+                if (status == WRONG_TYPE) {
                     printf("Unable to remove file '%s': Not a file\n", args);
+                    continue;
                 }
                 break;
             case 7:
                 status = reload(root, args);
-                if (status == NOT_FOUND) {
-                    printf("Unable to load file '%s': Does not exist", args);
-                } else if (status == WRONG_TYPE) {
+                if (status == WRONG_TYPE) {
                     printf("Unable to load file '%s': Malformed data", args);
+                    continue;
                 }
                 break;
             case 8:
                 status = save(root, args);
                 if (status == NOT_FOUND) {
                     printf("Unable to write to file '%s'", args);
+                    continue;
                 }
                 break;
             case 9:
                 quit(root);
                 break;
+        }
+
+        // default error messages avoided by each continue statement
+        if (status == NOT_FOUND) {
+            printf("Unable to access file '%s': Does not exist\n", args);
+        } else if (status == ALREADY_EXISTS) {
+            printf("Unable to create file '%s': File exists\n", args);
+        } else if (status == NOT_ENOUGH_ARGS) {
+            printf("Missing operand\n");
         }
     }
 }

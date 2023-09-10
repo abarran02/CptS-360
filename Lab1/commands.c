@@ -23,27 +23,19 @@ NODE* jumpToRoot(NODE *cwd) {
 }
 
 NavState navigateToPath(NODE *cwd, char *pathname, int newNode) {
-    const char delim[2] = "/";
-    NODE *currentChild;
     NODE *nwd = cwd; // start new working dir at cwd
+    NODE *currentChild;
     int found;
 
-    // don't want strtok to mutate pathname
+    const char delim[2] = "/";
     char pathnameCpy[MAX_LINE];
-    strcpy(pathnameCpy, pathname);
-
-    // no argument provided, go to '/'
-    if (pathnameCpy == NULL) {
-        nwd = jumpToRoot(nwd);
-        return (NavState) { nwd, SUCCESS };
-    }
+    strcpy(pathnameCpy, pathname);  // don't want strtok to mutate pathname
+    char *token = strtok(pathnameCpy, delim);
 
     // if path is absolute
     if (pathnameCpy[0] == '/') {
         nwd = jumpToRoot(nwd);
     }
-
-    char *token = strtok(pathnameCpy, delim);
 
     // iterate over pathnameCpy
     while (token != NULL) {
@@ -155,6 +147,10 @@ int mkdir(NODE *cwd, char *pathname) {
     /* Make a new directory for a given pathname.
     Show error message (DIR pathname already exists!) if the directory already present in the
     filesystem. */
+    if (pathname == NULL) {
+        return NOT_ENOUGH_ARGS;
+    }
+
     return newFile(cwd, pathname, 'D');
 }
 
@@ -164,6 +160,15 @@ int rmdir(NODE *cwd, char *pathname) {
     − The directory specified in pathname does not exist (DIR pathname does not exist!)
     − The directory is not empty (Cannot remove DIR pathname (not empty)!).
     */
+    if (pathname == NULL) {
+        return NOT_ENOUGH_ARGS;
+    }
+
+    if (strcmp(pathname, "/") == 0) {
+        // cannot remove root directory
+        return DIR_NOT_EMPTY;
+    }
+
     NavState navigate = navigateToPath(cwd, pathname, 0);
 
     if (navigate.status != SUCCESS) {
@@ -212,13 +217,23 @@ int ls(NODE *cwd, char *pathname) {
 int cd(NODE **cwd, char *pathname) {
     /* Change CWD to pathname, or to / if no pathname specified.
     Display an error message (No such file or directory: pathname) for an invalid pathname. */
-    NavState navigate = navigateToPath(*cwd, pathname, 0);
+    NODE* nwd;
+    
+    if (pathname == NULL) {
+        // no argument provided, go to '/'
+        nwd = jumpToRoot(*cwd);
+    } else {
+        // path provided
+        NavState navigate = navigateToPath(*cwd, pathname, 0);
 
-    if (navigate.status != SUCCESS) {
-        return navigate.status;
+        if (navigate.status != SUCCESS) {
+            return navigate.status;
+        }
+
+        nwd = navigate.nwd;
     }
 
-    *cwd = navigate.nwd;
+    *cwd = nwd;
     return SUCCESS;
 }
 
@@ -244,7 +259,7 @@ void absoluteWd(NODE *cwd, char *pathString) {
     }
 }
 
-int pwd(NODE *cwd) {
+void pwd(NODE *cwd) {
     /* Print the (absolute) pathname of CWD. */
     char pathString[MAX_LINE] = "";  // to be populated with pathString by absoluteWd
     absoluteWd(cwd, pathString);
@@ -254,6 +269,10 @@ int pwd(NODE *cwd) {
 int creat(NODE *cwd, char *pathname) {
     /* Create a new FILE node.
     Show error message (pathname already exists!) if the directory already present in the filesystem. */
+    if (pathname == NULL) {
+        return NOT_ENOUGH_ARGS;
+    }
+    
     return newFile(cwd, pathname, 'F');
 }
 
@@ -261,6 +280,10 @@ int rm(NODE *cwd, char *pathname) {
     /* Remove the FILE node specified by pathname.
     Display an error message (File pathname does not exist!) if there no such file exists.
     Display an error message (Cannot remove pathname (not a FILE)!) if pathname is not a FILE. */
+    if (pathname == NULL) {
+        return NOT_ENOUGH_ARGS;
+    }
+    
     NavState navigate = navigateToPath(cwd, pathname, 0);
 
     if (navigate.status != SUCCESS) {
@@ -277,6 +300,10 @@ int rm(NODE *cwd, char *pathname) {
 
 int reload(NODE *root, char *filename) {
     /* Re-initalize the filesystem tree from the file filename. */
+    if (filename == NULL) {
+        return NOT_ENOUGH_ARGS;
+    }
+    
     char line[MAX_LINE], *token;
     const char delim[3] = " \n";  // two delimiters
     FILE* fp = fopen(filename, "r");
@@ -326,6 +353,10 @@ void saveRecursive(FILE *fp, NODE *nodePtr) {
 
 int save(NODE *root, char *filename) {
     /* Save the current filesystem tree in the file filename. */
+    if (filename == NULL) {
+        return NOT_ENOUGH_ARGS;
+    }
+    
     FILE *fp = fopen(filename, "w+");
     
     // check file opens successfully
