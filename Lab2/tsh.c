@@ -176,7 +176,7 @@ int main(int argc, char **argv)
 void eval(char *cmdline)
 {
     int bg;  // parseline returns command is BG (true) or FG (false)
-    int found, pid;
+    int found, pid, status;
     char *argv[MAXARGS];
     char *envp[] = {};
     sigset_t mask, prev_mask;
@@ -206,19 +206,18 @@ void eval(char *cmdline)
 
             // unblock SIGCHLD within child process and execute external
             sigprocmask(SIG_SETMASK, &prev_mask, NULL);
-            execve(argv[0], argv+1, envp);
+            execve(argv[0], argv, envp);
         } else {
             // add new job for child process
-            if (bg) {
-                addjob(jobs, pid, BG, cmdline);
-            } else {
-                addjob(jobs, pid, FG, cmdline);
-            }
-
+            addjob(jobs, pid, bg ? BG : FG, cmdline);
             // unblock SIGCHLD
             sigprocmask(SIG_SETMASK, &prev_mask, NULL);
 
-            // waitpid() with WUNTRACED or WNOHANG required here for FG processes
+            // wait for task to complete if in foreground
+            if (!bg) {
+                waitpid(pid, &status, WUNTRACED);
+                deletejob(jobs, pid);
+            }
         }
     }
 }
@@ -357,9 +356,15 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig)
 {
+    struct job_t *fgJob;
     int pid = fgpid(jobs);
-    kill(pid, SIGINT);
-    deletejob(jobs, pid);
+    
+    // send SIGINT and delete job from list
+    if (kill(-pid, SIGINT) == 0) {
+        deletejob(jobs, pid);
+    } else {
+        fprintf(stderr, "kill (int) error");
+    }
 }
 
 /*
@@ -369,8 +374,16 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig)
 {
+    struct job_t *fgJob;
     int pid = fgpid(jobs);
-    kill(pid, SIGSTOP);
+
+    // send SIGSTOP and set job state to stopped
+    if (kill(-pid, SIGSTOP) == 0) {
+        fgJob = getjobpid(jobs, pid);
+        fgJob->state = ST;
+    } else {
+        fprintf(stderr, "kill (int) error");
+    }
 }
 
 /*********************
