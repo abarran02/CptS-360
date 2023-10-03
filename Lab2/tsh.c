@@ -213,6 +213,7 @@ void eval(char *cmdline)
 
             if (status == -1) {
                 printf("%s: Command not found\n", argv[0]);
+                kill(-pid, SIGINT);  // shell will hang thinking a process needs to complete
             }
         } else {
             // add new job for child process
@@ -336,13 +337,13 @@ void do_bgfg(char **argv, int argc)
         } else {
             printf("(%s): No such process\n", argv[1]);
         }
-        
+
         return;
     }
-    
-    // send continue signal
-    kill(job->pid, SIGCONT);
-    
+
+    // send continue signal to process group
+    kill(-job->pid, SIGCONT);
+
     if (strcmp(argv[0], "fg") == 0) {
         // set state to foreground and wait for completion
         job->state = FG;
@@ -376,14 +377,14 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig)
 {
-    /* 
+    /*
     * with help from the following:
     * https://docs.oracle.com/cd/E19455-01/806-4750/signals-7/index.html
     * https://stackoverflow.com/a/34845669
     */
     pid_t pid;
     int status;
-    
+
     pid = waitpid(-1, &status, WNOHANG);
     if (pid == 0) {
         // no zombie children
@@ -393,7 +394,7 @@ void sigchld_handler(int sig)
         return;
     } else {
         deletejob(jobs, pid);
-    }				
+    }
 }
 
 /*
@@ -410,7 +411,7 @@ void sigint_handler(int sig)
     if (pid == 0) {
         exit(0);
     }
-    
+
     // send SIGINT and delete job from list
     if (kill(-pid, SIGINT) == 0) {
         deletejob(jobs, pid);
