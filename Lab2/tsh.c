@@ -12,6 +12,8 @@
 #include <sys/wait.h>
 #include <errno.h>
 
+#include "sio.h"
+
 /* Misc manifest constants */
 #define MAXLINE    1024   /* max line size */
 #define MAXARGS     128   /* max args on a command line */
@@ -213,7 +215,11 @@ void eval(char *cmdline)
 
             if (status == -1) {
                 printf("%s: Command not found\n", argv[0]);
-                kill(-pid, SIGINT);  // shell will hang thinking a process needs to complete
+
+                // shell will hang thinking a process needs to complete
+                if (kill(-pid, SIGINT) != 0) {
+                    fprintf(stderr, "kill (int) error");
+                }
             }
         } else {
             // add new job for child process
@@ -342,7 +348,11 @@ void do_bgfg(char **argv, int argc)
     }
 
     // send continue signal to process group
-    kill(-job->pid, SIGCONT);
+    if (kill(-job->pid, SIGCONT) != 0) {
+        fprintf(stderr, "kill (cont) error");
+        return;
+    }
+    
 
     if (strcmp(argv[0], "fg") == 0) {
         // set state to foreground and wait for completion
@@ -367,6 +377,22 @@ void waitfg(pid_t pid)
 /*****************
  * Signal handlers
  *****************/
+
+/*
+ * Print the job status (terminated, stopped, etc)
+ * Desperately needs a printf-like function, but this is async-signal-safe
+*/
+void print_status(int jid, int pid, char* task, int signal) {
+    sio_puts("Job [");
+    sio_putl( (long) jid );
+    sio_puts("] (");
+    sio_putl( (long) pid );
+    sio_puts(") ");
+    sio_puts(task);
+    sio_puts(" by signal ");
+    sio_putl( (long) signal );
+    sio_puts("\n");
+}
 
 /*
  * sigchld_handler - The kernel sends a SIGCHLD to the shell whenever
@@ -409,15 +435,15 @@ void sigint_handler(int sig)
 
     // no foreground job
     if (pid == 0) {
-        exit(0);
+        _exit(0);
     }
 
     // send SIGINT and delete job from list
     if (kill(-pid, SIGINT) == 0) {
         deletejob(jobs, pid);
-        printf("Job [%d] (%d) terminated by signal %d\n", jid, pid, SIGINT);
+        print_status(jid, pid, "terminated", SIGINT);
     } else {
-        fprintf(stderr, "kill (int) error");
+        sio_puts("kill (int) error");
     }
 }
 
@@ -434,7 +460,7 @@ void sigtstp_handler(int sig)
 
     // no foreground job
     if (pid == 0) {
-        printf("No foreground job to stop");
+        sio_puts("No foreground job to stop");
         return;
     }
 
@@ -442,9 +468,9 @@ void sigtstp_handler(int sig)
     if (kill(-pid, SIGSTOP) == 0) {
         fgJob = getjobpid(jobs, pid);
         fgJob->state = ST;
-        printf("Job [%d] (%d) stopped by signal %d\n", jid, pid, SIGSTOP);
+        print_status(jid, pid, "stopped", SIGSTOP);
     } else {
-        fprintf(stderr, "kill (int) error");
+        sio_puts("kill (stop) error");
     }
 }
 
