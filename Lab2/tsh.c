@@ -249,7 +249,7 @@ int parseline(const char *cmdline, char **argv, int *argc)
     static char array[MAXLINE]; /* holds local copy of command line */
     char *buf = array;          /* ptr that traverses command line */
     char *delim;                /* points to first space delimiter */
-    int argc2;                   /* number of args */
+    int argc2;                  /* number of args */
     int bg;                     /* background job? */
 
     strcpy(buf, cmdline);
@@ -306,8 +306,10 @@ int builtin_cmd(char **argv, int argc)
         do_bgfg(argv, argc);
     } else if (strcmp(argv[0], "jobs") == 0) {
         listjobs(jobs);
-    } else {
+    } else if (strcmp(argv[0], "quit") == 0){
         exit(0);
+    } else {
+        return -1;
     }
 
     return 1;
@@ -355,7 +357,6 @@ void do_bgfg(char **argv, int argc)
         return;
     }
 
-
     if (strcmp(argv[0], "fg") == 0) {
         // set state to foreground and wait for completion
         job->state = FG;
@@ -384,7 +385,7 @@ void waitfg(pid_t pid)
  * Print the job status (terminated, stopped, etc)
  * Desperately needs a printf-like function, but this is async-signal-safe
 */
-void print_status(int jid, int pid, char* task, int signal) {
+void print_status(int jid, pid_t pid, char* task, int signal) {
     sio_puts("Job [");
     sio_putl( (long) jid );
     sio_puts("] (");
@@ -407,7 +408,7 @@ void sigchld_handler(int sig)
 {
     /*
     * with help from the following:
-    * https://docs.oracle.com/cd/E19455-01/806-4750/signals-7/index.html
+    * https://condor.depaul.edu/~glancast/374class/docs/oldslides/Jan25/slide28.html
     * https://stackoverflow.com/a/34845669
     */
     pid_t pid;
@@ -426,22 +427,12 @@ void sigchld_handler(int sig)
             zombie->state = ST;
             print_status(zombie->jid, pid, "stopped", SIGSTOP);
         } else if (WIFEXITED(status)) {
+            // exited normally
             deletejob(jobs, pid);
         } else {
             sio_puts("sigchld error");
         }
     }
-
-    // pid = waitpid(-1, &status, WNOHANG);
-    // if (pid == 0) {
-    //     // no zombie children
-    //     return;
-    // } else if (pid == -1) {
-    //     // error
-    //     return;
-    // } else {
-    //     deletejob(jobs, pid);
-    // }
 }
 
 /*
