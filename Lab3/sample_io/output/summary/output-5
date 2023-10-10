@@ -1,0 +1,105 @@
+######################### START OF FIRST COME FIRST SERVE #########################
+The original input was: 3 ( 1 5 30 2) ( 1 5 30 2) ( 0 5 30 2)
+The (sorted) input is: 3 ( 1 5 30 2) ( 1 5 30 2) ( 0 5 30 2)
+
+The scheduling algorithm used was First Come First Serve
+
+Process 0:
+	(A,B,C,M) = (1,5,30,2)
+	Finishing time: 94
+	Turnaround time: 93
+	I/O time: 43
+	Waiting time: 20
+
+Process 1:
+	(A,B,C,M) = (1,5,30,2)
+	Finishing time: 95
+	Turnaround time: 94
+	I/O time: 49
+	Waiting time: 15
+
+Process 2:
+	(A,B,C,M) = (0,5,30,2)
+	Finishing time: 98
+	Turnaround time: 98
+	I/O time: 46
+	Waiting time: 22
+
+Summary Data:
+	Finishing time: 98
+	CPU Utilisation: 0.918367
+	I/O Utilisation: 0.857143
+	Throughput: 3.061224 processes per hundred cycles
+	Average turnaround time: 95.000000
+	Average waiting time: 19.000000
+######################### END OF FIRST COME FIRST SERVE #########################
+######################### START OF ROUND ROBIN #########################
+The original input was: 3 ( 1 5 30 2) ( 1 5 30 2) ( 0 5 30 2)
+The (sorted) input is: 3 ( 1 5 30 2) ( 0 5 30 2) ( 1 5 30 2)
+
+The scheduling algorithm used was Round Robin
+
+Process 0:
+	(A,B,C,M) = (1,5,30,2)
+	Finishing time: 91
+	Turnaround time: 90
+	I/O time: 15
+	Waiting time: 45
+
+Process 1:
+	(A,B,C,M) = (1,5,30,2)
+	Finishing time: 83
+	Turnaround time: 82
+	I/O time: 7
+	Waiting time: 45
+
+Process 2:
+	(A,B,C,M) = (0,5,30,2)
+	Finishing time: 88
+	Turnaround time: 88
+	I/O time: 15
+	Waiting time: 43
+
+Summary Data:
+	Finishing time: 91
+	CPU Utilisation: 0.989011
+	I/O Utilisation: 0.373626
+	Throughput: 3.296703 processes per hundred cycles
+	Average turnaround time: 86.666667
+	Average waiting time: 44.333333
+######################### END OF ROUND ROBIN #########################
+######################### START OF SHORTEST JOB FIRST #########################
+The original input was: 3 ( 1 5 30 2) ( 1 5 30 2) ( 0 5 30 2)
+The (sorted) input is: 3 ( 0 5 30 2) ( 1 5 30 2) ( 1 5 30 2)
+
+The scheduling algorithm used was Shortest Job First
+
+Process 0:
+	(A,B,C,M) = (1,5,30,2)
+	Finishing time: 93
+	Turnaround time: 92
+	I/O time: 43
+	Waiting time: 19
+
+Process 1:
+	(A,B,C,M) = (1,5,30,2)
+	Finishing time: 103
+	Turnaround time: 102
+	I/O time: 47
+	Waiting time: 25
+
+Process 2:
+	(A,B,C,M) = (0,5,30,2)
+	Finishing time: 84
+	Turnaround time: 84
+	I/O time: 46
+	Waiting time: 8
+
+Summary Data:
+	Finishing time: 103
+	CPU Utilisation: 0.873786
+	I/O Utilisation: 0.844660
+	Throughput: 2.912621 processes per hundred cycles
+	Average turnaround time: 92.666667
+	Average waiting time: 17.333333
+######################### END OF SHORTEST JOB FIRST #########################

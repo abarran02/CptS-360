@@ -1,0 +1,147 @@
+######################### START OF FIRST COME FIRST SERVE #########################
+The original input was: 5 ( 0 3 200 3) ( 0 9 500 2) ( 0 20 500 1) ( 100 1 100 3) ( 100 100 500 1)
+The (sorted) input is: 5 ( 100 100 500 1) ( 100 1 100 3) ( 0 20 500 1) ( 0 3 200 3) ( 0 9 500 2)
+
+The scheduling algorithm used was First Come First Serve
+
+Process 0:
+	(A,B,C,M) = (0,3,200,3)
+	Finishing time: 1682
+	Turnaround time: 1682
+	I/O time: 418
+	Waiting time: 1064
+
+Process 1:
+	(A,B,C,M) = (0,9,500,2)
+	Finishing time: 2243
+	Turnaround time: 2243
+	I/O time: 890
+	Waiting time: 853
+
+Process 2:
+	(A,B,C,M) = (0,20,500,1)
+	Finishing time: 1550
+	Turnaround time: 1550
+	I/O time: 499
+	Waiting time: 551
+
+Process 3:
+	(A,B,C,M) = (100,1,100,3)
+	Finishing time: 1473
+	Turnaround time: 1373
+	I/O time: 120
+	Waiting time: 1153
+
+Process 4:
+	(A,B,C,M) = (100,100,500,1)
+	Finishing time: 1143
+	Turnaround time: 1043
+	I/O time: 450
+	Waiting time: 93
+
+Summary Data:
+	Finishing time: 2243
+	CPU Utilisation: 0.802497
+	I/O Utilisation: 0.636647
+	Throughput: 0.222916 processes per hundred cycles
+	Average turnaround time: 1578.200000
+	Average waiting time: 742.800000
+######################### END OF FIRST COME FIRST SERVE #########################
+######################### START OF ROUND ROBIN #########################
+The original input was: 5 ( 0 3 200 3) ( 0 9 500 2) ( 0 20 500 1) ( 100 1 100 3) ( 100 100 500 1)
+The (sorted) input is: 5 ( 100 1 100 3) ( 0 3 200 3) ( 0 20 500 1) ( 100 100 500 1) ( 0 9 500 2)
+
+The scheduling algorithm used was Round Robin
+
+Process 0:
+	(A,B,C,M) = (0,3,200,3)
+	Finishing time: 1044
+	Turnaround time: 1044
+	I/O time: 175
+	Waiting time: 669
+
+Process 1:
+	(A,B,C,M) = (0,9,500,2)
+	Finishing time: 1801
+	Turnaround time: 1801
+	I/O time: 118
+	Waiting time: 1183
+
+Process 2:
+	(A,B,C,M) = (0,20,500,1)
+	Finishing time: 1740
+	Turnaround time: 1740
+	I/O time: 36
+	Waiting time: 1204
+
+Process 3:
+	(A,B,C,M) = (100,1,100,3)
+	Finishing time: 944
+	Turnaround time: 844
+	I/O time: 110
+	Waiting time: 634
+
+Process 4:
+	(A,B,C,M) = (100,100,500,1)
+	Finishing time: 1780
+	Turnaround time: 1680
+	I/O time: 0
+	Waiting time: 1180
+
+Summary Data:
+	Finishing time: 1801
+	CPU Utilisation: 0.999445
+	I/O Utilisation: 0.224320
+	Throughput: 0.277624 processes per hundred cycles
+	Average turnaround time: 1421.800000
+	Average waiting time: 974.000000
+######################### END OF ROUND ROBIN #########################
+######################### START OF SHORTEST JOB FIRST #########################
+The original input was: 5 ( 0 3 200 3) ( 0 9 500 2) ( 0 20 500 1) ( 100 1 100 3) ( 100 100 500 1)
+The (sorted) input is: 5 ( 100 1 100 3) ( 100 100 500 1) ( 0 3 200 3) ( 0 20 500 1) ( 0 9 500 2)
+
+The scheduling algorithm used was Shortest Job First
+
+Process 0:
+	(A,B,C,M) = (0,3,200,3)
+	Finishing time: 1439
+	Turnaround time: 1439
+	I/O time: 410
+	Waiting time: 829
+
+Process 1:
+	(A,B,C,M) = (0,9,500,2)
+	Finishing time: 2350
+	Turnaround time: 2350
+	I/O time: 904
+	Waiting time: 946
+
+Process 2:
+	(A,B,C,M) = (0,20,500,1)
+	Finishing time: 1619
+	Turnaround time: 1619
+	I/O time: 493
+	Waiting time: 626
+
+Process 3:
+	(A,B,C,M) = (100,1,100,3)
+	Finishing time: 1006
+	Turnaround time: 906
+	I/O time: 123
+	Waiting time: 683
+
+Process 4:
+	(A,B,C,M) = (100,100,500,1)
+	Finishing time: 1172
+	Turnaround time: 1072
+	I/O time: 497
+	Waiting time: 75
+
+Summary Data:
+	Finishing time: 2350
+	CPU Utilisation: 0.765957
+	I/O Utilisation: 0.653617
+	Throughput: 0.212766 processes per hundred cycles
+	Average turnaround time: 1477.200000
+	Average waiting time: 631.800000
+######################### END OF SHORTEST JOB FIRST #########################
