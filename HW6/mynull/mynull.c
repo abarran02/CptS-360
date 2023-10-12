@@ -1,6 +1,8 @@
 /*
  * mynull.c: Creates a read-only char device that says how many times
  * you have read from the dev file
+ * 
+ * May need to call "sudo chmod 666 /dev/mynull" to use loaded kernel module
  */
 
 #include <linux/atomic.h>
@@ -27,7 +29,6 @@ static ssize_t device_write(struct file *, const char __user *, size_t,
 
 #define SUCCESS 0
 #define DEVICE_NAME "mynull" /* Dev name as it appears in /proc/devices   */
-#define BUF_LEN 80 /* Max length of the message from the device */
 
 /* Global variables are declared as static, so are global within the file. */
 
@@ -40,8 +41,6 @@ enum {
 
 /* Is device open? Used to prevent multiple access to device */
 static atomic_t already_open = ATOMIC_INIT(CDEV_NOT_USED);
-
-static char msg[BUF_LEN + 1]; /* The msg the device will give when asked */
 
 static struct class *cls;
 
@@ -62,12 +61,6 @@ static int __init mynull_init(void)
     }
 
     pr_info("I was assigned major number %d.\n", major);
-
-// #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
-//     cls = class_create(DEVICE_NAME);
-// #else
-//     cls = class_create(THIS_MODULE, DEVICE_NAME);
-// #endif
 
 	cls = class_create(THIS_MODULE, DEVICE_NAME);
 
@@ -96,14 +89,6 @@ static void __exit mynull_exit(void)
  */
 static int device_open(struct inode *inode, struct file *file)
 {
-    static int counter = 0;
-
-    if (atomic_cmpxchg(&already_open, CDEV_NOT_USED, CDEV_EXCLUSIVE_OPEN))
-        return -EBUSY;
-
-    sprintf(msg, "I already told you %d times Hello world!\n", counter++);
-    try_module_get(THIS_MODULE);
-
     return SUCCESS;
 }
 
@@ -129,43 +114,14 @@ static ssize_t device_read(struct file *filp, /* see include/linux/fs.h   */
                            size_t length, /* length of the buffer     */
                            loff_t *offset)
 {
-    /* Number of bytes actually written to the buffer */
-    int bytes_read = 0;
-    const char *msg_ptr = msg;
-
-    if (!*(msg_ptr + *offset)) { /* we are at the end of message */
-        *offset = 0; /* reset the offset */
-        return 0; /* signify end of file */
-    }
-
-    msg_ptr += *offset;
-
-    /* Actually put the data into the buffer */
-    while (length && *msg_ptr) {
-        /* The buffer is in the user data segment, not the kernel
-         * segment so "*" assignment won't work.  We have to use
-         * put_user which copies data from the kernel data segment to
-         * the user data segment.
-         */
-        put_user(*(msg_ptr++), buffer++);
-        length--;
-        bytes_read++;
-    }
-
-    *offset += bytes_read;
-
-    pr_info("device_read called for Device: /dev/%s\n", DEVICE_NAME);
-
-    /* Most read functions return the number of bytes put into the buffer. */
-    return bytes_read;
+    return SUCCESS;
 }
 
 /* Called when a process writes to dev file: echo "hi" > /dev/hello */
 static ssize_t device_write(struct file *filp, const char __user *buff,
                             size_t len, loff_t *off)
 {
-    pr_alert("Sorry, this operation is not supported.\n");
-    return -EINVAL;
+    return len;
 }
 
 module_init(mynull_init);
