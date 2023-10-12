@@ -44,9 +44,6 @@ uint32_t TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED = 0; // The total cycles in the bl
 const char* RANDOM_NUMBER_FILE_NAME= "random-numbers";
 const uint32_t SEED_VALUE = 200;  // Seed value for reading from file
 
-// Additional variables as needed
-
-
 /**
  * Reads a random non-negative integer X from a file with a given line named random-numbers (in the current directory)
  */
@@ -69,8 +66,6 @@ uint32_t getRandNumFromFile(uint32_t line, FILE* random_num_file_ptr){
     return (uint32_t) 1804289383;
 }
 
-
-
 /**
  * Reads a random non-negative integer X from a file named random-numbers.
  * Returns the CPU Burst: : 1 + (random-number-from-file % upper_bound)
@@ -78,16 +73,51 @@ uint32_t getRandNumFromFile(uint32_t line, FILE* random_num_file_ptr){
 uint32_t randomOS(uint32_t upper_bound, uint32_t process_indx, FILE* random_num_file_ptr)
 {
     char str[20];
-    
+
     uint32_t unsigned_rand_int = (uint32_t) getRandNumFromFile(SEED_VALUE+process_indx, random_num_file_ptr);
     uint32_t returnValue = 1 + (unsigned_rand_int % upper_bound);
 
     return returnValue;
-} 
+}
+
+/*
+ Inititalize a new Process with the following properties:
+    A: Arrival time of the process
+    B: Upper Bound of CPU burst times of the given random integer list
+    C: Total CPU time required
+    M: Multiplier of CPU burst time
+*/
+_process init_process(int A, int B, int C, int M, int processId) {
+    _process newProcess = {
+        A = A,
+        B = B,
+        C = C,
+        M = M
+    };
+
+    newProcess.processID = processId;
+
+    newProcess.finishingTime = -1;
+    newProcess.currentCPUTimeRun = 0;
+    newProcess.currentIOBlockedTime = 0;
+    newProcess.currentWaitingTime = 0;
+
+    newProcess.IOBurst = -1;
+    newProcess.CPUBurst = -1;
+
+    newProcess.quantum = -1;
+
+    newProcess.isFirstTimeRunning = true;
+
+    newProcess.nextInBlockedList = NULL;
+    newProcess.nextInReadyQueue = NULL;
+    newProcess.nextInReadySuspendedQueue = NULL;
+
+    return newProcess;
+}
 
 
 /********************* SOME PRINTING HELPERS *********************/
-
 
 /**
  * Prints to standard output the original input
@@ -104,7 +134,7 @@ void printStart(_process process_list[])
                process_list[i].C, process_list[i].M);
     }
     printf("\n");
-} 
+}
 
 /**
  * Prints to standard output the final output
@@ -188,18 +218,71 @@ void printSummaryData(_process process_list[])
     printf("\tAverage waiting time: %6f\n", avg_waiting_time);
 } // End of the print summary data function
 
+/** Input validation **/
 
-/**
- * The magic starts from here
- */
+_process parse_quadruple(char *quad, int id) {
+    int A, B, C, M;
+    const char delim[2] = " ";
+    char *token, quadcpy[16];
+
+    strcpy(quadcpy, quad);
+
+    token = strtok(quadcpy, delim);
+    A = atoi(token);
+
+    token = strtok(NULL, delim);
+    B = atoi(token);
+
+    token = strtok(NULL, delim);
+    C = atoi(token);
+
+    token = strtok(NULL, delim);
+    M = atoi(token);
+
+    return init_process(A, B, C, M, id);
+}
+
+void parse_line(char* line, _process *process_list) {
+    const char delim[3] = "()";
+    char *token;
+    int count = 0;
+
+    // iterate over quadruples
+    while ((token = strtok(NULL, delim)) != NULL) {
+        process_list[count] = parse_quadruple(token, count);
+        count++;
+    }
+}
+
+_process* parse_file(char* filename, int *num_process) {
+    FILE *processfile;
+    char *line, *token;
+    size_t len = 0;
+    const char delim[2] = " ";
+    _process *process_list;
+
+    processfile = fopen(filename, "r");
+
+    if (processfile == NULL) {
+        return NULL;
+    }
+
+    // get input from processfile
+    getline(&line, &len, processfile);
+
+    token = strtok(line, delim);
+    *num_process = atoi(token);
+    process_list = (_process*)malloc(*num_process * sizeof(_process));
+
+    parse_line(line, process_list);
+
+    return process_list;
+}
+
 int main(int argc, char *argv[])
 {
-    uint32_t total_num_of_process;               // Read from the file -- number of process to create
-    _process process_list[total_num_of_process]; // Creates a container for all processes
-    // Other variables
-
-
-    // Write code for your shiny scheduler
+    int num_process;
+    _process *process_list = parse_file(argv[1], &num_process);
 
     return 0;
-} 
+}
