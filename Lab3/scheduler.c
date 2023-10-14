@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 // Headers as needed
-
+#define MAX_INPUT_LEN 256
 typedef enum {false, true} bool;        // Allows boolean types in C
 
 /* Defines a job struct */
@@ -220,48 +220,52 @@ void printSummaryData(_process process_list[])
 
 /** Input validation **/
 
-_process parse_quadruple(char *quad, int id) {
-    int A, B, C, M;
+int get_process_count(char *line) {
+    char linecpy[MAX_INPUT_LEN], *token;
     const char delim[2] = " ";
-    char *token, quadcpy[16];
 
-    strcpy(quadcpy, quad);
-
-    token = strtok(quadcpy, delim);
-    A = atoi(token);
-
-    token = strtok(NULL, delim);
-    B = atoi(token);
-
-    token = strtok(NULL, delim);
-    C = atoi(token);
-
-    token = strtok(NULL, delim);
-    M = atoi(token);
-
-    return init_process(A, B, C, M, id);
+    strcpy(linecpy, line);
+    token = strtok(linecpy, delim);
+    return atoi(token);
 }
 
-void parse_line(char* line, _process *process_list) {
-    const char delim[3] = "()";
+_process* parse_line(char *line, int *num_process) {
+    const char delim[4] = "() ";
     char *token;
-    int count = 0;
+    _process *process_list;
+    int val[4];
 
-    // iterate over quadruples
-    while ((token = strtok(NULL, delim)) != NULL) {
-        process_list[count] = parse_quadruple(token, count);
-        count++;
+    // does not ingest process count prefix
+    *num_process = get_process_count(line);
+    process_list = (_process*)malloc(*num_process * sizeof(_process));
+
+    // skip over count prefix
+    token = strtok(line, " ");
+    token = strtok(NULL, delim);
+
+    // iterate over quadruples, ignore comment
+    for (int quad = 0; quad < *num_process; quad++) {
+        // iterate over values of current quadruple
+        for (int n = 0; n < 4; n++) {
+            if (token != NULL) {
+                val[n] = atoi(token);
+            } else {
+                // malformed string
+                return NULL;
+            }
+            token = strtok(NULL, delim);
+        }
+
+        process_list[quad] = init_process(val[0], val[1], val[2], val[3], quad);
     }
+
+    return process_list;
 }
 
-_process* parse_file(char* filename, int *num_process) {
-    FILE *processfile;
-    char *line, *token;
+_process* parse_file(char *filename, int *num_process) {
+    char *line;
     size_t len = 0;
-    const char delim[2] = " ";
-    _process *process_list;
-
-    processfile = fopen(filename, "r");
+    FILE *processfile = fopen(filename, "r");
 
     if (processfile == NULL) {
         return NULL;
@@ -269,14 +273,7 @@ _process* parse_file(char* filename, int *num_process) {
 
     // get input from processfile
     getline(&line, &len, processfile);
-
-    token = strtok(line, delim);
-    *num_process = atoi(token);
-    process_list = (_process*)malloc(*num_process * sizeof(_process));
-
-    parse_line(line, process_list);
-
-    return process_list;
+    return parse_line(line, num_process);
 }
 
 int main(int argc, char *argv[])
