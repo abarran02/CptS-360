@@ -97,22 +97,6 @@ _process init_process(int A, int B, int C, int M, int processId) {
 
     newProcess.processID = processId;
 
-    newProcess.finishingTime = -1;
-    newProcess.currentCPUTimeRun = 0;
-    newProcess.currentIOBlockedTime = 0;
-    newProcess.currentWaitingTime = 0;
-
-    newProcess.IOBurst = -1;
-    newProcess.CPUBurst = -1;
-
-    newProcess.quantum = -1;
-
-    newProcess.isFirstTimeRunning = true;
-
-    newProcess.nextInBlockedList = NULL;
-    newProcess.nextInReadyQueue = NULL;
-    newProcess.nextInReadySuspendedQueue = NULL;
-
     return newProcess;
 }
 
@@ -218,6 +202,198 @@ void printSummaryData(_process process_list[])
     printf("\tAverage waiting time: %6f\n", avg_waiting_time);
 } // End of the print summary data function
 
+/** Schedulers **/
+
+/*
+ * Reset all scheduler counters to zero
+ */
+void reset_counters() {
+    CURRENT_CYCLE = 0;
+    TOTAL_STARTED_PROCESSES = 0;
+    TOTAL_FINISHED_PROCESSES = 0;
+    TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED = 0;
+}
+
+void add_to_ready(_process **ready, _process *newlyready) {
+    _process *curprocess = *ready;
+
+    // ready queue is empty
+    if (curprocess == NULL) {
+        newlyready->status = 1;
+        *ready = newlyready;
+        return;
+    }
+
+    // iterate to end of ready queue
+    while (curprocess->nextInReadyQueue != NULL) {
+        curprocess = curprocess->nextInReadyQueue;
+    }
+
+    // add current process to ready queue
+    curprocess->nextInReadyQueue = newlyready;
+    curprocess->nextInReadyQueue->status = 1;
+}
+
+void add_to_blocked(_process **blocked, _process *newlyblocked) {
+    _process *curprocess = *blocked;
+
+    // blocked queue is empty
+    if (curprocess == NULL) {
+        newlyblocked->status = 3;
+        *blocked = newlyblocked;
+        return;
+    }
+
+    // iterate to end of blocked queue
+    while (curprocess->nextInBlockedList != NULL) {
+        curprocess = curprocess->nextInBlockedList;
+    }
+
+    // add current process to blocked queue
+    curprocess->nextInBlockedList = newlyblocked;
+    curprocess->nextInBlockedList->status = 1;
+}
+
+void add_arrivals_to_ready(_process process_list[], _process **ready) {
+    // iterate over process list
+    for (int i = 0; i < TOTAL_CREATED_PROCESSES; i++) {
+        if (process_list[i].A == CURRENT_CYCLE) {
+            add_to_ready(ready, &process_list[i]);
+        }
+    }
+}
+
+/** First Come First Served (FCFS) **/
+
+void fcfs_init_process(_process *fcfsproc) {
+    fcfsproc->status = 0;
+
+    fcfsproc->finishingTime = -1;
+    fcfsproc->currentCPUTimeRun = 0;
+    fcfsproc->currentIOBlockedTime = 0;
+    fcfsproc->currentWaitingTime = 0;
+
+    fcfsproc->isFirstTimeRunning = true;
+
+    fcfsproc->nextInBlockedList = NULL;
+    fcfsproc->nextInReadyQueue = NULL;
+    fcfsproc->nextInReadySuspendedQueue = NULL;
+}
+
+void fcfs_start_process(_process *fcfsproc, FILE *randfile) {
+    fcfsproc->status = 2;
+    fcfsproc->CPUBurst = randomOS(fcfsproc->B, 
+        fcfsproc->processID, randfile);
+    fcfsproc->IOBurst = fcfsproc->CPUBurst * fcfsproc->M;
+
+    if (fcfsproc->isFirstTimeRunning) {
+        TOTAL_STARTED_PROCESSES++;
+        fcfsproc->isFirstTimeRunning = false;
+    }
+}
+
+/*
+ * Run the First Come First Served (FCFS) scheduler on process_list[]
+ */
+void run_fcfs(_process process_list[]) {
+    _process *running, *ready = NULL, *blocked = NULL, *curprocess;
+    FILE *randfile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
+
+    reset_counters();
+
+    // initialize all processes
+    for (int i = 0; i < TOTAL_CREATED_PROCESSES; i++) {
+        fcfs_init_process(&process_list[i]);
+    }
+
+    // ititialize ready queue
+    add_arrivals_to_ready(process_list, &ready);
+
+    // run first process
+    running = ready;
+    ready = running->nextInReadyQueue;
+    fcfs_start_process(running, randfile);
+
+    // start cycle
+    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES) {
+        // context switch
+        if (running != NULL && (running->status == 3 || running->status == 4)) {
+            if (running->nextInReadyQueue != NULL) {
+                running = ready;
+                ready = running->nextInReadyQueue;
+                fcfs_start_process(running, randfile);
+            } else {
+                running = NULL;
+            }
+        } else if (running == NULL && ready != NULL) {
+            // no running process last cycle
+            running = ready;
+            ready = running->nextInReadyQueue;
+            fcfs_start_process(running, randfile);
+        }
+
+        CURRENT_CYCLE++;
+
+        // operate on ready queue
+        curprocess = ready;
+        while (curprocess != NULL) {
+            curprocess->currentWaitingTime++;
+            curprocess = curprocess->nextInReadyQueue;
+        }
+
+        // operate on blocked list
+        if (blocked != NULL) {
+            TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED++;
+            curprocess = blocked;
+
+            // first item in list
+            curprocess->currentIOBlockedTime++;
+            curprocess->IOBurst--;
+
+            if (curprocess->IOBurst == 0) {
+                add_to_ready(&ready, curprocess);
+                blocked = curprocess->nextInBlockedList;
+            }
+
+            // all other items in list
+            while (curprocess->nextInBlockedList != NULL) {
+                curprocess->nextInBlockedList->currentIOBlockedTime++;
+                curprocess->nextInBlockedList->IOBurst++;
+
+                if (curprocess->nextInBlockedList->IOBurst == 0) {
+                    add_to_ready(&ready, curprocess->nextInBlockedList);
+                    curprocess = curprocess->nextInBlockedList->nextInBlockedList;
+                } else {
+                    curprocess = curprocess->nextInBlockedList;
+                }
+            }
+        }
+
+        add_arrivals_to_ready(process_list, &ready);
+        
+        // operate on running process
+        if (running == NULL) {
+            continue;
+        }
+
+        running->currentCPUTimeRun++;
+        running->CPUBurst--;
+
+        if (running->currentCPUTimeRun == running->C) {
+            // CPU task completes, terminate
+            running->status = 4;
+            running->finishingTime = CURRENT_CYCLE;
+            TOTAL_FINISHED_PROCESSES++;
+        } else if (running->CPUBurst == 0) {
+            // CPU burst finishes, block for IO
+            running->status = 3;
+            add_to_blocked(&blocked, running);
+        }
+    }
+
+    CURRENT_CYCLE++;
+}
+
 /** Input validation **/
 
 int get_process_count(char *line) {
@@ -229,7 +405,7 @@ int get_process_count(char *line) {
     return atoi(token);
 }
 
-_process* parse_line(char *line, int *num_process) {
+_process* parse_line(char *line, uint32_t *num_process) {
     const char delim[4] = "() ";
     char *token;
     _process *process_list;
@@ -262,7 +438,7 @@ _process* parse_line(char *line, int *num_process) {
     return process_list;
 }
 
-_process* parse_file(char *filename, int *num_process) {
+_process* parse_file(char *filename, uint32_t *num_process) {
     char *line;
     size_t len = 0;
     FILE *processfile = fopen(filename, "r");
@@ -278,8 +454,10 @@ _process* parse_file(char *filename, int *num_process) {
 
 int main(int argc, char *argv[])
 {
-    int num_process;
-    _process *process_list = parse_file(argv[1], &num_process);
+    _process *process_list = parse_file(argv[1], &TOTAL_CREATED_PROCESSES);
+
+    run_fcfs(process_list);
+    printSummaryData(process_list);
 
     return 0;
 }
