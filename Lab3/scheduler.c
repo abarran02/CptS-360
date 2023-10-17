@@ -234,21 +234,38 @@ void add_to_ready(_process **ready, _process *newlyready) {
 }
 
 void add_to_blocked(_process **blocked, _process *newlyblocked) {
-    _process *curprocess = *blocked;
+    _process *curprocess;
     newlyblocked->status = 3;
 
-    // blocked queue is empty
-    if (curprocess == NULL) {
+    // blocked list is empty
+    if (*blocked == NULL) {
         *blocked = newlyblocked;
         return;
     }
 
-    // iterate to end of blocked queue
+    // add to front of blocked list
+    if (newlyblocked->IOBurst < (*blocked)->IOBurst) {
+        newlyblocked->nextInBlockedList = *blocked;
+        *blocked = newlyblocked;
+        return;
+    }
+
+    curprocess = *blocked;
+
+    // iterate to end of blocked list
     while (curprocess->nextInBlockedList != NULL) {
+
+        // keep list sorted by remaining IO burst
+        if (newlyblocked->IOBurst < curprocess->nextInBlockedList->IOBurst) {
+            newlyblocked->nextInBlockedList = curprocess->nextInBlockedList;
+            curprocess->nextInBlockedList = newlyblocked;
+            return;
+        }
+
         curprocess = curprocess->nextInBlockedList;
     }
 
-    // add current process to blocked queue
+    // add new process to end blocked queue
     curprocess->nextInBlockedList = newlyblocked;
 }
 
@@ -279,11 +296,13 @@ void fcfs_init_process(_process *fcfsproc) {
 }
 
 void fcfs_start_process(_process *fcfsproc, FILE *randfile) {
-    fcfsproc->status = 2;
-    fcfsproc->CPUBurst = randomOS(fcfsproc->B, 
-        fcfsproc->processID, randfile);
-    fcfsproc->IOBurst = fcfsproc->CPUBurst * fcfsproc->M;
+    uint32_t burst = randomOS(fcfsproc->B, fcfsproc->processID, randfile);
 
+    fcfsproc->status = 2;
+    fcfsproc->CPUBurst = burst;
+    fcfsproc->IOBurst = burst * fcfsproc->M;
+
+    // clear process knowledge of queues
     fcfsproc->nextInBlockedList = NULL;
     fcfsproc->nextInReadyQueue = NULL;
 
@@ -295,8 +314,10 @@ void fcfs_start_process(_process *fcfsproc, FILE *randfile) {
 
 /*
  * Run the First Come First Served (FCFS) scheduler on process_list[]
+ * Returns list of processes in finishing order
  */
-void run_fcfs(_process process_list[]) {
+_process* fcfs_run(_process process_list[]) {
+    _process *finished_process_list = (_process*)malloc(TOTAL_CREATED_PROCESSES * sizeof(_process));
     _process *running = NULL, *ready = NULL, *blocked = NULL, *curprocess;
     FILE *randfile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
 
@@ -335,7 +356,7 @@ void run_fcfs(_process process_list[]) {
 
         CURRENT_CYCLE++;
 
-        // operate on ready queue
+        // increment waiting time for each process in ready queue
         curprocess = ready;
         while (curprocess != NULL) {
             curprocess->currentWaitingTime++;
@@ -347,31 +368,21 @@ void run_fcfs(_process process_list[]) {
             TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED++;
             curprocess = blocked;
 
-            // first item in list
-            curprocess->currentIOBlockedTime++;
-            curprocess->IOBurst--;
-
-            if (curprocess->IOBurst == 0) {
-                add_to_ready(&ready, curprocess);
-                blocked = curprocess->nextInBlockedList;
+            // decrement IO burst for all blocked processes
+            while (curprocess != NULL) {
+                curprocess->IOBurst--;
+                curprocess = curprocess->nextInBlockedList;
             }
 
-            // all other items in list
-            while (curprocess->nextInBlockedList != NULL) {
-                curprocess->nextInBlockedList->currentIOBlockedTime++;
-                curprocess->nextInBlockedList->IOBurst--;
-
-                if (curprocess->nextInBlockedList->IOBurst == 0) {
-                    add_to_ready(&ready, curprocess->nextInBlockedList);
-                    curprocess->nextInBlockedList = curprocess->nextInBlockedList->nextInBlockedList;
-                } else {
-                    curprocess = curprocess->nextInBlockedList;
-                }
+            // add finished IO processes to ready queue, remove from blocked list
+            while (blocked != NULL && blocked->IOBurst == 0) {
+                add_to_ready(&ready, blocked);
+                blocked = blocked->nextInBlockedList;
             }
         }
 
         add_arrivals_to_ready(process_list, &ready);
-        
+
         // operate on running process
         if (running == NULL) {
             continue;
@@ -384,15 +395,16 @@ void run_fcfs(_process process_list[]) {
             // CPU task completes, terminate
             running->status = 4;
             running->finishingTime = CURRENT_CYCLE;
+            finished_process_list[TOTAL_FINISHED_PROCESSES] = *running;
             TOTAL_FINISHED_PROCESSES++;
         } else if (running->CPUBurst == 0) {
             // CPU burst finishes, block for IO
-            running->status = 3;
             add_to_blocked(&blocked, running);
         }
     }
 
     CURRENT_CYCLE++;
+    return finished_process_list;
 }
 
 /** Input validation **/
@@ -455,12 +467,14 @@ _process* parse_file(char *filename, uint32_t *num_process) {
 
 int main(int argc, char *argv[])
 {
-    _process *process_list = parse_file(argv[1], &TOTAL_CREATED_PROCESSES);
+    _process *process_list, *finished_process_list;
+
+    process_list = parse_file(argv[1], &TOTAL_CREATED_PROCESSES);
 
     // FCFS
     printStart(process_list);
-    run_fcfs(process_list);
-    printFinal(process_list);
+    finished_process_list = fcfs_run(process_list);
+    printFinal(finished_process_list);
     printProcessSpecifics(process_list);
     printSummaryData(process_list);
 
