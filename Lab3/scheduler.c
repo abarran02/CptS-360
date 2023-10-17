@@ -216,10 +216,10 @@ void reset_counters() {
 
 void add_to_ready(_process **ready, _process *newlyready) {
     _process *curprocess = *ready;
+    newlyready->status = 1;
 
     // ready queue is empty
     if (curprocess == NULL) {
-        newlyready->status = 1;
         *ready = newlyready;
         return;
     }
@@ -231,15 +231,14 @@ void add_to_ready(_process **ready, _process *newlyready) {
 
     // add current process to ready queue
     curprocess->nextInReadyQueue = newlyready;
-    curprocess->nextInReadyQueue->status = 1;
 }
 
 void add_to_blocked(_process **blocked, _process *newlyblocked) {
     _process *curprocess = *blocked;
+    newlyblocked->status = 3;
 
     // blocked queue is empty
     if (curprocess == NULL) {
-        newlyblocked->status = 3;
         *blocked = newlyblocked;
         return;
     }
@@ -251,7 +250,6 @@ void add_to_blocked(_process **blocked, _process *newlyblocked) {
 
     // add current process to blocked queue
     curprocess->nextInBlockedList = newlyblocked;
-    curprocess->nextInBlockedList->status = 1;
 }
 
 void add_arrivals_to_ready(_process process_list[], _process **ready) {
@@ -286,6 +284,9 @@ void fcfs_start_process(_process *fcfsproc, FILE *randfile) {
         fcfsproc->processID, randfile);
     fcfsproc->IOBurst = fcfsproc->CPUBurst * fcfsproc->M;
 
+    fcfsproc->nextInBlockedList = NULL;
+    fcfsproc->nextInReadyQueue = NULL;
+
     if (fcfsproc->isFirstTimeRunning) {
         TOTAL_STARTED_PROCESSES++;
         fcfsproc->isFirstTimeRunning = false;
@@ -296,7 +297,7 @@ void fcfs_start_process(_process *fcfsproc, FILE *randfile) {
  * Run the First Come First Served (FCFS) scheduler on process_list[]
  */
 void run_fcfs(_process process_list[]) {
-    _process *running, *ready = NULL, *blocked = NULL, *curprocess;
+    _process *running = NULL, *ready = NULL, *blocked = NULL, *curprocess;
     FILE *randfile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
 
     reset_counters();
@@ -318,9 +319,9 @@ void run_fcfs(_process process_list[]) {
     while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES) {
         // context switch
         if (running != NULL && (running->status == 3 || running->status == 4)) {
-            if (running->nextInReadyQueue != NULL) {
+            if (ready != NULL) {
                 running = ready;
-                ready = running->nextInReadyQueue;
+                ready = ready->nextInReadyQueue;
                 fcfs_start_process(running, randfile);
             } else {
                 running = NULL;
@@ -358,11 +359,11 @@ void run_fcfs(_process process_list[]) {
             // all other items in list
             while (curprocess->nextInBlockedList != NULL) {
                 curprocess->nextInBlockedList->currentIOBlockedTime++;
-                curprocess->nextInBlockedList->IOBurst++;
+                curprocess->nextInBlockedList->IOBurst--;
 
                 if (curprocess->nextInBlockedList->IOBurst == 0) {
                     add_to_ready(&ready, curprocess->nextInBlockedList);
-                    curprocess = curprocess->nextInBlockedList->nextInBlockedList;
+                    curprocess->nextInBlockedList = curprocess->nextInBlockedList->nextInBlockedList;
                 } else {
                     curprocess = curprocess->nextInBlockedList;
                 }
@@ -456,7 +457,11 @@ int main(int argc, char *argv[])
 {
     _process *process_list = parse_file(argv[1], &TOTAL_CREATED_PROCESSES);
 
+    // FCFS
+    printStart(process_list);
     run_fcfs(process_list);
+    printFinal(process_list);
+    printProcessSpecifics(process_list);
     printSummaryData(process_list);
 
     return 0;
