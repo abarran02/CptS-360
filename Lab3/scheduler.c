@@ -317,14 +317,21 @@ void add_arrivals_to_ready(_process process_list[], _process **ready) {
 }
 
 void start_process(_process *proc, FILE *randfile) {
-    uint32_t burst;
+    uint32_t burst, time_left;
 
     // cold start (recalc burst) or starting from suspended (do nothing)
     if (proc->CPUBurst == 0) {
+        time_left = proc->C - proc->currentCPUTimeRun;
+
         burst = randomOS(proc->B, proc->processID, randfile);
  
-        proc->CPUBurst = burst;
-        proc->IOBurst = burst * proc->M;
+        // if the burst is greater than the CPU time remaining
+        if (time_left < burst) {
+            proc->CPUBurst = time_left;
+        } else {
+            proc->CPUBurst = burst;
+            proc->IOBurst = burst * proc->M;
+        }
     }
 
     // clear process knowledge of queues
@@ -342,7 +349,6 @@ void start_process(_process *proc, FILE *randfile) {
 
 /*
  * Run the First Come First Served (FCFS) scheduler on process_list[]
- * Returns list of processes in finishing order
  */
 void fcfs_run(_process process_list[], _process finished_process_list[], FILE *randfile) {
     _process *running = NULL, *ready = NULL, *blocked = NULL, *curprocess;
@@ -520,6 +526,108 @@ void rr_run(_process process_list[], _process finished_process_list[], FILE *ran
     CURRENT_CYCLE++;
 }
 
+/** First Come First Served (FCFS) **/
+
+void sjf_run(_process process_list[], _process finished_process_list[], FILE *randfile) {
+    _process *running = NULL, *ready = NULL, *blocked = NULL, *curprocess, *shortestjob;
+
+    // ititialize ready queue
+    add_arrivals_to_ready(process_list, &ready);
+
+    // run first process
+    running = ready;
+    ready = running->nextInReadyQueue;
+    start_process(running, randfile);
+
+    // start cycle
+    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES) {
+        CURRENT_CYCLE++;
+
+        // increment waiting time for each process in ready queue
+        curprocess = ready;
+        while (curprocess != NULL) {
+            curprocess->currentWaitingTime++;
+            curprocess = curprocess->nextInReadyQueue;
+        }
+
+        add_arrivals_to_ready(process_list, &ready);
+
+        // operate on blocked list
+        if (blocked != NULL) {
+            TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED++;
+            curprocess = blocked;
+
+            // decrement IO burst for all blocked processes
+            while (curprocess != NULL) {
+                curprocess->IOBurst--;
+                curprocess->currentIOBlockedTime++;
+                curprocess = curprocess->nextInBlockedList;
+            }
+
+            // add finished IO processes to ready queue, remove from blocked list
+            while (blocked != NULL && blocked->IOBurst == 0) {
+                add_to_ready(&ready, blocked);
+                blocked = blocked->nextInBlockedList;
+            }
+        }
+
+        // operate on running process
+        if (running != NULL) {
+            running->currentCPUTimeRun++;
+            running->CPUBurst--;
+
+            if (running->currentCPUTimeRun == running->C) {
+                // CPU task completes, terminate
+                running->status = 4;
+                running->finishingTime = CURRENT_CYCLE;
+                finished_process_list[TOTAL_FINISHED_PROCESSES] = *running;
+                running = NULL;
+
+                TOTAL_FINISHED_PROCESSES++;
+            } else if (running->CPUBurst == 0) {
+                // CPU burst finishes, block for IO
+                add_to_blocked(&blocked, running);
+                running = NULL;
+            }
+        }
+
+        // context switch
+        if (running == NULL && ready != NULL) {
+            // search ready queue for minimum job CPU burst, or arrival time for equal burst
+            shortestjob = ready;
+            curprocess = ready->nextInReadyQueue;
+
+            while (curprocess != NULL) {
+                if (curprocess->CPUBurst < shortestjob->CPUBurst || 
+                    (curprocess->CPUBurst == shortestjob->CPUBurst && curprocess->A < shortestjob->A)) {
+                    shortestjob = curprocess;
+                }
+
+                curprocess = curprocess->nextInReadyQueue;
+            }
+            
+            if (shortestjob == ready) {
+                // shortest job was first in queue, advance queue
+                ready = ready->nextInReadyQueue;
+            } else {
+                // shortest job in middle of queue, remove and reconnect
+                curprocess = ready;
+                // inefficient but seek back to shortest job to remove from queue
+                while (curprocess->nextInReadyQueue != shortestjob) {
+                    curprocess = curprocess->nextInReadyQueue;
+                }
+
+                curprocess->nextInReadyQueue = shortestjob->nextInReadyQueue;
+            }
+
+            running = shortestjob;
+            start_process(running, randfile);
+        }
+    }
+
+    CURRENT_CYCLE++;
+}
+
 /** Input validation **/
 
 int get_process_count(char *line) {
@@ -583,7 +691,7 @@ int main(int argc, char *argv[])
     FILE *randfile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
     _process *process_list, *finished_process_list;
 
-    process_list = parse_file("sample_io/input/input-4", &TOTAL_CREATED_PROCESSES);
+    process_list = parse_file("sample_io/input/input-3", &TOTAL_CREATED_PROCESSES);
     finished_process_list = (_process*)malloc(TOTAL_CREATED_PROCESSES * sizeof(_process));
 
     // run each scheduler
@@ -599,7 +707,7 @@ int main(int argc, char *argv[])
             rr_run(process_list, finished_process_list, randfile);
         } else {
             printf("\nSTART OF SHORTEST JOB FIRST\n");
-            // sjf_run(process_list, finished_process_list randfile);
+            sjf_run(process_list, finished_process_list, randfile);
         }
         
         printStart(process_list);
