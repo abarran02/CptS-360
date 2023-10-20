@@ -88,16 +88,17 @@ uint32_t randomOS(uint32_t upper_bound, uint32_t process_indx, FILE* random_num_
     M: Multiplier of CPU burst time
 */
 _process init_process(int A, int B, int C, int M, int processId) {
-    _process newProcess = {
+    _process newprocess = {
         A = A,
         B = B,
         C = C,
         M = M
     };
 
-    newProcess.processID = processId;
+    newprocess.processID = processId;
+    newprocess.quantum = 2;  // only used by Round Robin
 
-    return newProcess;
+    return newprocess;
 }
 
 
@@ -214,6 +215,24 @@ void reset_counters() {
     TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED = 0;
 }
 
+void reset_process_list(_process process_list[]) {
+    for (int i = 0; i < TOTAL_CREATED_PROCESSES; i++) {
+        process_list[i].currentCPUTimeRun = 0;
+        process_list[i].currentIOBlockedTime = 0;
+        process_list[i].currentWaitingTime = 0;
+        process_list[i].finishingTime = -1;
+
+        process_list[i].CPUBurst = 0;
+        process_list[i].IOBurst = 0;
+
+        process_list[i].status = 0;
+        process_list[i].isFirstTimeRunning = true;
+
+        process_list[i].nextInBlockedList = NULL;
+        process_list[i].nextInReadyQueue = NULL;
+    }
+}
+
 void add_to_ready(_process **ready, _process *newlyready) {
     _process *curprocess = *ready;
     newlyready->status = 1;
@@ -224,17 +243,35 @@ void add_to_ready(_process **ready, _process *newlyready) {
         return;
     }
 
+    // add to front of ready queue
+    // prioritize arrival time, then process id
+    if (newlyready->A < curprocess->A ||
+        (newlyready->A == curprocess->A && newlyready->processID < curprocess->processID)) {
+        newlyready->nextInReadyQueue = *ready;
+        *ready = newlyready;
+        return;
+    }
+
     // iterate to end of ready queue
     while (curprocess->nextInReadyQueue != NULL) {
+        // keep queue sorted by above criteria
+        if (newlyready->A < curprocess->nextInReadyQueue->A ||
+            (newlyready->A == curprocess->nextInReadyQueue->A && newlyready->processID < curprocess->nextInReadyQueue->processID)) {
+            // insert newlyready between curprocess and curprocess->nextInReadyQueue
+            newlyready->nextInReadyQueue = curprocess->nextInReadyQueue;
+            curprocess->nextInReadyQueue = newlyready;
+            return;
+        }
+
         curprocess = curprocess->nextInReadyQueue;
     }
 
-    // add current process to ready queue
+    // add current process to end of ready queue
     curprocess->nextInReadyQueue = newlyready;
 }
 
 void add_to_blocked(_process **blocked, _process *newlyblocked) {
-    _process *curprocess;
+    _process *curprocess = *blocked;
     newlyblocked->status = 3;
 
     // blocked list is empty
@@ -244,7 +281,7 @@ void add_to_blocked(_process **blocked, _process *newlyblocked) {
     }
 
     // add to front of blocked list
-    if (newlyblocked->IOBurst < (*blocked)->IOBurst) {
+    if (newlyblocked->IOBurst < curprocess->IOBurst) {
         newlyblocked->nextInBlockedList = *blocked;
         *blocked = newlyblocked;
         return;
@@ -257,6 +294,7 @@ void add_to_blocked(_process **blocked, _process *newlyblocked) {
 
         // keep list sorted by remaining IO burst
         if (newlyblocked->IOBurst < curprocess->nextInBlockedList->IOBurst) {
+            // insert newlyblocked between curprocess and curprocess->nextInBlockedList
             newlyblocked->nextInBlockedList = curprocess->nextInBlockedList;
             curprocess->nextInBlockedList = newlyblocked;
             return;
@@ -265,7 +303,7 @@ void add_to_blocked(_process **blocked, _process *newlyblocked) {
         curprocess = curprocess->nextInBlockedList;
     }
 
-    // add new process to end blocked queue
+    // add new process to end of blocked queue
     curprocess->nextInBlockedList = newlyblocked;
 }
 
@@ -278,55 +316,36 @@ void add_arrivals_to_ready(_process process_list[], _process **ready) {
     }
 }
 
-/** First Come First Served (FCFS) **/
+void start_process(_process *proc, FILE *randfile) {
+    uint32_t burst;
 
-void fcfs_init_process(_process *fcfsproc) {
-    fcfsproc->status = 0;
-
-    fcfsproc->finishingTime = -1;
-    fcfsproc->currentCPUTimeRun = 0;
-    fcfsproc->currentIOBlockedTime = 0;
-    fcfsproc->currentWaitingTime = 0;
-
-    fcfsproc->isFirstTimeRunning = true;
-
-    fcfsproc->nextInBlockedList = NULL;
-    fcfsproc->nextInReadyQueue = NULL;
-    fcfsproc->nextInReadySuspendedQueue = NULL;
-}
-
-void fcfs_start_process(_process *fcfsproc, FILE *randfile) {
-    uint32_t burst = randomOS(fcfsproc->B, fcfsproc->processID, randfile);
-
-    fcfsproc->status = 2;
-    fcfsproc->CPUBurst = burst;
-    fcfsproc->IOBurst = burst * fcfsproc->M;
+    // cold start (recalc burst) or starting from suspended (do nothing)
+    if (proc->CPUBurst == 0) {
+        burst = randomOS(proc->B, proc->processID, randfile);
+ 
+        proc->CPUBurst = burst;
+        proc->IOBurst = burst * proc->M;
+    }
 
     // clear process knowledge of queues
-    fcfsproc->nextInBlockedList = NULL;
-    fcfsproc->nextInReadyQueue = NULL;
+    proc->nextInBlockedList = NULL;
+    proc->nextInReadyQueue = NULL;
+    proc->status = 2;
 
-    if (fcfsproc->isFirstTimeRunning) {
+    if (proc->isFirstTimeRunning) {
         TOTAL_STARTED_PROCESSES++;
-        fcfsproc->isFirstTimeRunning = false;
+        proc->isFirstTimeRunning = false;
     }
 }
+
+/** First Come First Served (FCFS) **/
 
 /*
  * Run the First Come First Served (FCFS) scheduler on process_list[]
  * Returns list of processes in finishing order
  */
-_process* fcfs_run(_process process_list[]) {
-    _process *finished_process_list = (_process*)malloc(TOTAL_CREATED_PROCESSES * sizeof(_process));
+void fcfs_run(_process process_list[], _process finished_process_list[], FILE *randfile) {
     _process *running = NULL, *ready = NULL, *blocked = NULL, *curprocess;
-    FILE *randfile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
-
-    reset_counters();
-
-    // initialize all processes
-    for (int i = 0; i < TOTAL_CREATED_PROCESSES; i++) {
-        fcfs_init_process(&process_list[i]);
-    }
 
     // ititialize ready queue
     add_arrivals_to_ready(process_list, &ready);
@@ -334,27 +353,29 @@ _process* fcfs_run(_process process_list[]) {
     // run first process
     running = ready;
     ready = running->nextInReadyQueue;
-    fcfs_start_process(running, randfile);
+    start_process(running, randfile);
 
     // start cycle
     while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES) {
+        CURRENT_CYCLE++;
+
         // context switch
         if (running != NULL && (running->status == 3 || running->status == 4)) {
             if (ready != NULL) {
+                // switch running process
                 running = ready;
                 ready = ready->nextInReadyQueue;
-                fcfs_start_process(running, randfile);
+                start_process(running, randfile);
             } else {
+                // no running process for this cycle
                 running = NULL;
             }
         } else if (running == NULL && ready != NULL) {
             // no running process last cycle
             running = ready;
             ready = running->nextInReadyQueue;
-            fcfs_start_process(running, randfile);
+            start_process(running, randfile);
         }
-
-        CURRENT_CYCLE++;
 
         // increment waiting time for each process in ready queue
         curprocess = ready;
@@ -404,7 +425,99 @@ _process* fcfs_run(_process process_list[]) {
     }
 
     CURRENT_CYCLE++;
-    return finished_process_list;
+}
+
+/** Round Robin (RR) **/
+
+void rr_run(_process process_list[], _process finished_process_list[], FILE *randfile) {
+    _process *running = NULL, *ready = NULL, *blocked = NULL, *curprocess;
+    uint32_t quantum, quantum_counter;  // overall quantum and counter to decrement
+
+    // ititialize ready queue
+    add_arrivals_to_ready(process_list, &ready);
+
+    // run first process
+    running = ready;
+    ready = running->nextInReadyQueue;
+    start_process(running, randfile);
+
+    // quantum will be the same for all processes, can use first value
+    quantum = running->quantum;
+    quantum_counter = quantum;
+
+    // start cycle
+    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES) {
+        CURRENT_CYCLE++;
+        quantum_counter--;
+
+        // increment waiting time for each process in ready queue
+        curprocess = ready;
+        while (curprocess != NULL) {
+            curprocess->currentWaitingTime++;
+            curprocess = curprocess->nextInReadyQueue;
+        }
+
+        add_arrivals_to_ready(process_list, &ready);
+
+        // operate on blocked list
+        if (blocked != NULL) {
+            TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED++;
+            curprocess = blocked;
+
+            // decrement IO burst for all blocked processes
+            while (curprocess != NULL) {
+                curprocess->IOBurst--;
+                curprocess->currentIOBlockedTime++;
+                curprocess = curprocess->nextInBlockedList;
+            }
+
+            // add finished IO processes to ready queue, remove from blocked list
+            while (blocked != NULL && blocked->IOBurst == 0) {
+                add_to_ready(&ready, blocked);
+                blocked = blocked->nextInBlockedList;
+            }
+        }
+
+        // operate on running process
+        if (running != NULL) {
+            running->currentCPUTimeRun++;
+            running->CPUBurst--;
+
+            if (running->currentCPUTimeRun == running->C) {
+                // CPU task completes, terminate
+                running->status = 4;
+                running->finishingTime = CURRENT_CYCLE;
+                finished_process_list[TOTAL_FINISHED_PROCESSES] = *running;
+                running = NULL;
+
+                TOTAL_FINISHED_PROCESSES++;
+            } else if (running->CPUBurst == 0) {
+                // CPU burst finishes, block for IO
+                add_to_blocked(&blocked, running);
+                running = NULL;
+            }
+        }
+
+        // context switch every quantum cycle or running process stopped
+        if (quantum_counter == 0 || running == NULL) {
+            quantum_counter = quantum;
+
+            // move running process to end of ready queue
+            if (running != NULL) {
+                add_to_ready(&ready, running);  // would have already terminated or blocked above
+                running = NULL;
+            }
+
+            // move next ready process to running
+            if (ready != NULL) {
+                running = ready;
+                ready = ready->nextInReadyQueue;
+                start_process(running, randfile);
+            }
+        }
+    }
+
+    CURRENT_CYCLE++;
 }
 
 /** Input validation **/
@@ -467,16 +580,34 @@ _process* parse_file(char *filename, uint32_t *num_process) {
 
 int main(int argc, char *argv[])
 {
+    FILE *randfile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
     _process *process_list, *finished_process_list;
 
-    process_list = parse_file(argv[1], &TOTAL_CREATED_PROCESSES);
+    process_list = parse_file("sample_io/input/input-4", &TOTAL_CREATED_PROCESSES);
+    finished_process_list = (_process*)malloc(TOTAL_CREATED_PROCESSES * sizeof(_process));
 
-    // FCFS
-    printStart(process_list);
-    finished_process_list = fcfs_run(process_list);
-    printFinal(finished_process_list);
-    printProcessSpecifics(process_list);
-    printSummaryData(process_list);
+    // run each scheduler
+    for (int scheduler = 0; scheduler < 3; scheduler++) {
+        reset_counters();
+        reset_process_list(process_list);  // can assume finished_process_list to contain "garbage" on each iteration
 
+        if (scheduler == 0) {
+            printf("START OF FIRST COME FIRST SERVE\n");
+            fcfs_run(process_list, finished_process_list, randfile);
+        } else if (scheduler == 1) {
+            printf("\nSTART OF ROUND ROBIN\n");
+            rr_run(process_list, finished_process_list, randfile);
+        } else {
+            printf("\nSTART OF SHORTEST JOB FIRST\n");
+            // sjf_run(process_list, finished_process_list randfile);
+        }
+        
+        printStart(process_list);
+        printFinal(finished_process_list);
+        printProcessSpecifics(process_list);
+        printSummaryData(process_list);
+    }
+
+    fclose(randfile);
     return 0;
 }
