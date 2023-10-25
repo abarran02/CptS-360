@@ -434,6 +434,52 @@ void fcfs_run(_process process_list[], _process finished_process_list[], FILE *r
 
 /** Round Robin (RR) **/
 
+void rr_add_to_ready(_process **ready, _process *newlyready) {
+    _process *curprocess = *ready;
+    newlyready->status = 1;
+
+    // ready queue is empty
+    if (curprocess == NULL) {
+        *ready = newlyready;
+        return;
+    }
+
+    // add to front of ready queue
+    // prioritize arrival time, then process id
+    if (newlyready->A < curprocess->A ||
+        (newlyready->A == curprocess->A && newlyready->processID < curprocess->processID)) {
+        newlyready->nextInReadyQueue = *ready;
+        *ready = newlyready;
+        return;
+    }
+
+    // iterate to end of ready queue
+    while (curprocess->nextInReadyQueue != NULL) {
+        // keep queue sorted by above criteria
+        if (newlyready->A < curprocess->nextInReadyQueue->A ||
+            (newlyready->A == curprocess->nextInReadyQueue->A && newlyready->processID < curprocess->nextInReadyQueue->processID)) {
+            // insert newlyready between curprocess and curprocess->nextInReadyQueue
+            newlyready->nextInReadyQueue = curprocess->nextInReadyQueue;
+            curprocess->nextInReadyQueue = newlyready;
+            return;
+        }
+
+        curprocess = curprocess->nextInReadyQueue;
+    }
+
+    // add current process to end of ready queue
+    curprocess->nextInReadyQueue = newlyready;
+}
+
+void rr_add_arrivals_to_ready(_process process_list[], _process **ready) {
+    // iterate over process list
+    for (int i = 0; i < TOTAL_CREATED_PROCESSES; i++) {
+        if (process_list[i].A == CURRENT_CYCLE) {
+            rr_add_to_ready(ready, &process_list[i]);
+        }
+    }
+}
+
 void rr_run(_process process_list[], _process finished_process_list[], FILE *randfile) {
     _process *running = NULL, *ready = NULL, *blocked = NULL, *curprocess;
     uint32_t quantum_counter;  // quantum counter to decrement each cycle
@@ -520,7 +566,9 @@ void rr_run(_process process_list[], _process finished_process_list[], FILE *ran
 /** Shortest Job First (SJF) **/
 
 void sjf_add_to_ready(_process **ready, _process *newlyready) {
+    uint32_t time_remaining_new, time_remaining_current;
     _process *curprocess = *ready;
+
     newlyready->status = 1;
 
     // ready queue is empty
@@ -529,10 +577,13 @@ void sjf_add_to_ready(_process **ready, _process *newlyready) {
         return;
     }
 
+    time_remaining_new = newlyready->C - newlyready->currentCPUTimeRun;
+    time_remaining_current = curprocess->C - curprocess->currentCPUTimeRun;
+
     // add to front of ready queue
-    // prioritize arrival time, then process id
-    if (newlyready->A < curprocess->A ||
-        (newlyready->A == curprocess->A && newlyready->processID < curprocess->processID)) {
+    // prioritize CPU time remaining, then arrival time
+    if (time_remaining_new < time_remaining_current ||
+        (time_remaining_new == time_remaining_current && newlyready->A < curprocess->A)) {
         newlyready->nextInReadyQueue = *ready;
         *ready = newlyready;
         return;
@@ -540,9 +591,11 @@ void sjf_add_to_ready(_process **ready, _process *newlyready) {
 
     // iterate to end of ready queue
     while (curprocess->nextInReadyQueue != NULL) {
+        time_remaining_current = curprocess->C - curprocess->nextInReadyQueue->currentCPUTimeRun;
+
         // keep queue sorted by above criteria
-        if (newlyready->A < curprocess->nextInReadyQueue->A ||
-            (newlyready->A == curprocess->nextInReadyQueue->A && newlyready->processID < curprocess->nextInReadyQueue->processID)) {
+        if (time_remaining_new < time_remaining_current ||
+            (time_remaining_new == time_remaining_current && newlyready->A < curprocess->nextInReadyQueue->A)) {
             // insert newlyready between curprocess and curprocess->nextInReadyQueue
             newlyready->nextInReadyQueue = curprocess->nextInReadyQueue;
             curprocess->nextInReadyQueue = newlyready;
@@ -552,7 +605,7 @@ void sjf_add_to_ready(_process **ready, _process *newlyready) {
         curprocess = curprocess->nextInReadyQueue;
     }
 
-    // add current process to end of ready queue
+    // new process is longest job, so add to end of ready queue
     curprocess->nextInReadyQueue = newlyready;
 }
 
@@ -576,16 +629,21 @@ void sjf_run(_process process_list[], _process finished_process_list[], FILE *ra
             curprocess = blocked;
 
             // decrement IO burst for all blocked processes
+            // and check blocked processes being ready again
             while (curprocess != NULL) {
                 curprocess->IOBurst--;
                 curprocess->currentIOBlockedTime++;
-                curprocess = curprocess->nextInBlockedList;
-            }
 
-            // add finished IO processes to ready queue, remove from blocked list
-            while (blocked != NULL && blocked->IOBurst == 0) {
-                sjf_add_to_ready(&ready, blocked);
-                blocked = blocked->nextInBlockedList;
+                if (curprocess->IOBurst != 0) {
+                    curprocess = curprocess->nextInBlockedList;
+                } else {
+                    // IO finished, move to ready queue, remove from blocked list
+                    fcfs_add_to_ready(&ready, curprocess);
+
+                    // since blocked list is sorted, advance block list
+                    blocked = blocked->nextInBlockedList;
+                    curprocess = blocked;
+                }
             }
         }
 
@@ -613,34 +671,8 @@ void sjf_run(_process process_list[], _process finished_process_list[], FILE *ra
 
         // context switch
         if (running == NULL && ready != NULL) {
-            // search ready queue for minimum job CPU burst, or arrival time for equal burst
-            shortestjob = ready;
-            curprocess = ready->nextInReadyQueue;
-
-            while (curprocess != NULL) {
-                if (curprocess->CPUBurst < shortestjob->CPUBurst ||
-                    (curprocess->CPUBurst == shortestjob->CPUBurst && curprocess->A < shortestjob->A)) {
-                    shortestjob = curprocess;
-                }
-
-                curprocess = curprocess->nextInReadyQueue;
-            }
-
-            if (shortestjob == ready) {
-                // shortest job was first in queue, advance queue
-                ready = ready->nextInReadyQueue;
-            } else {
-                // shortest job in middle of queue, remove and reconnect
-                curprocess = ready;
-                // inefficient but seek back to shortest job to remove from queue
-                while (curprocess->nextInReadyQueue != shortestjob) {
-                    curprocess = curprocess->nextInReadyQueue;
-                }
-
-                curprocess->nextInReadyQueue = shortestjob->nextInReadyQueue;
-            }
-
-            running = shortestjob;
+            running = ready;
+            ready = ready->nextInReadyQueue;
             start_process(running, randfile);
         }
 
@@ -731,6 +763,7 @@ int main(int argc, char *argv[])
             fcfs_run(process_list, finished_process_list, randfile);
         } else if (scheduler == 1) {
             printf("\nSTART OF ROUND ROBIN\n");
+            printf("Quantum is %d\n", QUANTUM);
             rr_run(process_list, finished_process_list, randfile);
         } else {
             printf("\nSTART OF SHORTEST JOB FIRST\n");
