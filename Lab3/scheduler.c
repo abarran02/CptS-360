@@ -203,6 +203,35 @@ void printSummaryData(_process process_list[])
     printf("\tAverage waiting time: %6f\n", avg_waiting_time);
 } // End of the print summary data function
 
+/**
+ * Prints the status of each process before a cycle
+ * Useful for debugging
+ */
+void printCycle(_process process_list[]) {
+    printf("Before cycle %d: \t", CURRENT_CYCLE);
+    for (int i = 0; i < TOTAL_CREATED_PROCESSES; i++) {
+        switch (process_list[i].status) {
+            case 0:
+                printf("\tunstarted\t0");
+                break;
+            case 1:
+                printf("\tready\t\t0");
+                break;
+            case 2:
+                printf("\trunning\t\t%d", process_list[i].CPUBurst);
+                break;
+            case 3:
+                printf("\tblocked\t\t%d", process_list[i].IOBurst);
+                break;
+            case 4:
+                printf("\tterminated\t0");
+                break;
+        }
+    }
+    printf("\n");
+}
+
+
 /** Schedulers **/
 
 /*
@@ -324,7 +353,7 @@ void start_process(_process *proc, FILE *randfile) {
         time_left = proc->C - proc->currentCPUTimeRun;
 
         burst = randomOS(proc->B, proc->processID, randfile);
- 
+
         // if the burst is greater than the CPU time remaining
         if (time_left < burst) {
             proc->CPUBurst = time_left;
@@ -347,39 +376,94 @@ void start_process(_process *proc, FILE *randfile) {
 
 /** First Come First Served (FCFS) **/
 
+void fcfs_add_to_ready(_process **ready, _process *newlyready) {
+    _process *curprocess = *ready;
+    newlyready->status = 1;
+
+    // ready queue is empty
+    if (curprocess == NULL) {
+        *ready = newlyready;
+        return;
+    }
+
+    // iterate to end of ready queue
+    while (curprocess->nextInReadyQueue != NULL) {
+        curprocess = curprocess->nextInReadyQueue;
+    }
+
+    // add current process to end of ready queue
+    curprocess->nextInReadyQueue = newlyready;
+}
+
+void fcfs_add_arrivals_to_ready(_process process_list[], _process **ready) {
+    // iterate over process list
+    for (int i = 0; i < TOTAL_CREATED_PROCESSES; i++) {
+        if (process_list[i].A == CURRENT_CYCLE) {
+            fcfs_add_to_ready(ready, &process_list[i]);
+        }
+    }
+}
+
 /*
  * Run the First Come First Served (FCFS) scheduler on process_list[]
  */
 void fcfs_run(_process process_list[], _process finished_process_list[], FILE *randfile) {
     _process *running = NULL, *ready = NULL, *blocked = NULL, *curprocess;
 
-    // ititialize ready queue
-    add_arrivals_to_ready(process_list, &ready);
-
-    // run first process
-    running = ready;
-    ready = running->nextInReadyQueue;
-    start_process(running, randfile);
-
     // start cycle
     while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES) {
-        CURRENT_CYCLE++;
+        // operate on blocked list
+        // prioritizes adding oldest processes to ready queue
+        if (blocked != NULL) {
+            TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED++;
+            curprocess = blocked;
 
-        // context switch
-        if (running != NULL && (running->status == 3 || running->status == 4)) {
-            if (ready != NULL) {
-                // switch running process
-                running = ready;
-                ready = ready->nextInReadyQueue;
-                start_process(running, randfile);
-            } else {
-                // no running process for this cycle
+            // decrement IO burst for all blocked processes
+            // and check blocked processes being ready again
+            while (curprocess != NULL) {
+                curprocess->IOBurst--;
+                curprocess->currentIOBlockedTime++;
+
+                if (curprocess->IOBurst != 0) {
+                    curprocess = curprocess->nextInBlockedList;
+                } else {
+                    // IO finished, move to ready queue, remove from blocked list
+                    fcfs_add_to_ready(&ready, curprocess);
+
+                    // since blocked list is sorted, advance block list
+                    blocked = blocked->nextInBlockedList;
+                    curprocess = blocked;
+                }
+            }
+        }
+
+        fcfs_add_arrivals_to_ready(process_list, &ready);
+
+        // context switch or operate on running process
+        // running set to NULL when blocked or terminated
+        if (running != NULL) {
+            running->currentCPUTimeRun++;
+            running->CPUBurst--;
+
+            if (running->currentCPUTimeRun == running->C) {
+                // CPU task completes, terminate
+                running->status = 4;
+                running->finishingTime = CURRENT_CYCLE;
+                finished_process_list[TOTAL_FINISHED_PROCESSES] = *running;
+                running = NULL;
+
+                TOTAL_FINISHED_PROCESSES++;
+            } else if (running->CPUBurst == 0) {
+                // CPU burst finishes, block for IO
+                add_to_blocked(&blocked, running);
                 running = NULL;
             }
-        } else if (running == NULL && ready != NULL) {
-            // no running process last cycle
+        }
+
+        // start next process if running blocked or terminated
+        if (running == NULL && ready != NULL) {
             running = ready;
-            ready = running->nextInReadyQueue;
+            ready = ready->nextInReadyQueue;
             start_process(running, randfile);
         }
 
@@ -390,47 +474,8 @@ void fcfs_run(_process process_list[], _process finished_process_list[], FILE *r
             curprocess = curprocess->nextInReadyQueue;
         }
 
-        // operate on blocked list
-        if (blocked != NULL) {
-            TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED++;
-            curprocess = blocked;
-
-            // decrement IO burst for all blocked processes
-            while (curprocess != NULL) {
-                curprocess->IOBurst--;
-                curprocess = curprocess->nextInBlockedList;
-            }
-
-            // add finished IO processes to ready queue, remove from blocked list
-            while (blocked != NULL && blocked->IOBurst == 0) {
-                add_to_ready(&ready, blocked);
-                blocked = blocked->nextInBlockedList;
-            }
-        }
-
-        add_arrivals_to_ready(process_list, &ready);
-
-        // operate on running process
-        if (running == NULL) {
-            continue;
-        }
-
-        running->currentCPUTimeRun++;
-        running->CPUBurst--;
-
-        if (running->currentCPUTimeRun == running->C) {
-            // CPU task completes, terminate
-            running->status = 4;
-            running->finishingTime = CURRENT_CYCLE;
-            finished_process_list[TOTAL_FINISHED_PROCESSES] = *running;
-            TOTAL_FINISHED_PROCESSES++;
-        } else if (running->CPUBurst == 0) {
-            // CPU burst finishes, block for IO
-            add_to_blocked(&blocked, running);
-        }
+        CURRENT_CYCLE++;
     }
-
-    CURRENT_CYCLE++;
 }
 
 /** Round Robin (RR) **/
@@ -598,14 +643,14 @@ void sjf_run(_process process_list[], _process finished_process_list[], FILE *ra
             curprocess = ready->nextInReadyQueue;
 
             while (curprocess != NULL) {
-                if (curprocess->CPUBurst < shortestjob->CPUBurst || 
+                if (curprocess->CPUBurst < shortestjob->CPUBurst ||
                     (curprocess->CPUBurst == shortestjob->CPUBurst && curprocess->A < shortestjob->A)) {
                     shortestjob = curprocess;
                 }
 
                 curprocess = curprocess->nextInReadyQueue;
             }
-            
+
             if (shortestjob == ready) {
                 // shortest job was first in queue, advance queue
                 ready = ready->nextInReadyQueue;
@@ -691,7 +736,7 @@ int main(int argc, char *argv[])
     FILE *randfile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
     _process *process_list, *finished_process_list;
 
-    process_list = parse_file("sample_io/input/input-3", &TOTAL_CREATED_PROCESSES);
+    process_list = parse_file("sample_io/input/input-1", &TOTAL_CREATED_PROCESSES);
     finished_process_list = (_process*)malloc(TOTAL_CREATED_PROCESSES * sizeof(_process));
 
     // run each scheduler
@@ -709,7 +754,7 @@ int main(int argc, char *argv[])
             printf("\nSTART OF SHORTEST JOB FIRST\n");
             sjf_run(process_list, finished_process_list, randfile);
         }
-        
+
         printStart(process_list);
         printFinal(finished_process_list);
         printProcessSpecifics(process_list);
