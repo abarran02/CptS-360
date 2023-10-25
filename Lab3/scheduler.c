@@ -40,6 +40,7 @@ uint32_t TOTAL_CREATED_PROCESSES = 0;   // The total number of processes constru
 uint32_t TOTAL_STARTED_PROCESSES = 0;   // The total number of processes that have started being simulated
 uint32_t TOTAL_FINISHED_PROCESSES = 0;  // The total number of processes that have finished running
 uint32_t TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED = 0; // The total cycles in the blocked state
+uint32_t QUANTUM = 2;  // time quantum for Round Robin scheduler
 
 const char* RANDOM_NUMBER_FILE_NAME= "random-numbers";
 const uint32_t SEED_VALUE = 200;  // Seed value for reading from file
@@ -96,7 +97,7 @@ _process init_process(int A, int B, int C, int M, int processId) {
     };
 
     newprocess.processID = processId;
-    newprocess.quantum = 2;  // only used by Round Robin
+    newprocess.quantum = QUANTUM;  // only used by Round Robin
 
     return newprocess;
 }
@@ -262,43 +263,6 @@ void reset_process_list(_process process_list[]) {
     }
 }
 
-void add_to_ready(_process **ready, _process *newlyready) {
-    _process *curprocess = *ready;
-    newlyready->status = 1;
-
-    // ready queue is empty
-    if (curprocess == NULL) {
-        *ready = newlyready;
-        return;
-    }
-
-    // add to front of ready queue
-    // prioritize arrival time, then process id
-    if (newlyready->A < curprocess->A ||
-        (newlyready->A == curprocess->A && newlyready->processID < curprocess->processID)) {
-        newlyready->nextInReadyQueue = *ready;
-        *ready = newlyready;
-        return;
-    }
-
-    // iterate to end of ready queue
-    while (curprocess->nextInReadyQueue != NULL) {
-        // keep queue sorted by above criteria
-        if (newlyready->A < curprocess->nextInReadyQueue->A ||
-            (newlyready->A == curprocess->nextInReadyQueue->A && newlyready->processID < curprocess->nextInReadyQueue->processID)) {
-            // insert newlyready between curprocess and curprocess->nextInReadyQueue
-            newlyready->nextInReadyQueue = curprocess->nextInReadyQueue;
-            curprocess->nextInReadyQueue = newlyready;
-            return;
-        }
-
-        curprocess = curprocess->nextInReadyQueue;
-    }
-
-    // add current process to end of ready queue
-    curprocess->nextInReadyQueue = newlyready;
-}
-
 void add_to_blocked(_process **blocked, _process *newlyblocked) {
     _process *curprocess = *blocked;
     newlyblocked->status = 3;
@@ -334,15 +298,6 @@ void add_to_blocked(_process **blocked, _process *newlyblocked) {
 
     // add new process to end of blocked queue
     curprocess->nextInBlockedList = newlyblocked;
-}
-
-void add_arrivals_to_ready(_process process_list[], _process **ready) {
-    // iterate over process list
-    for (int i = 0; i < TOTAL_CREATED_PROCESSES; i++) {
-        if (process_list[i].A == CURRENT_CYCLE) {
-            add_to_ready(ready, &process_list[i]);
-        }
-    }
 }
 
 void start_process(_process *proc, FILE *randfile) {
@@ -439,8 +394,7 @@ void fcfs_run(_process process_list[], _process finished_process_list[], FILE *r
 
         fcfs_add_arrivals_to_ready(process_list, &ready);
 
-        // context switch or operate on running process
-        // running set to NULL when blocked or terminated
+        // operate on running process
         if (running != NULL) {
             running->currentCPUTimeRun++;
             running->CPUBurst--;
@@ -482,52 +436,36 @@ void fcfs_run(_process process_list[], _process finished_process_list[], FILE *r
 
 void rr_run(_process process_list[], _process finished_process_list[], FILE *randfile) {
     _process *running = NULL, *ready = NULL, *blocked = NULL, *curprocess;
-    uint32_t quantum, quantum_counter;  // overall quantum and counter to decrement
-
-    // ititialize ready queue
-    add_arrivals_to_ready(process_list, &ready);
-
-    // run first process
-    running = ready;
-    ready = running->nextInReadyQueue;
-    start_process(running, randfile);
-
-    // quantum will be the same for all processes, can use first value
-    quantum = running->quantum;
-    quantum_counter = quantum;
+    uint32_t quantum_counter;  // quantum counter to decrement each cycle
 
     // start cycle
+    // uses same priority as FCFS for adding processes to queue
     while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES) {
-        CURRENT_CYCLE++;
-        quantum_counter--;
-
-        // increment waiting time for each process in ready queue
-        curprocess = ready;
-        while (curprocess != NULL) {
-            curprocess->currentWaitingTime++;
-            curprocess = curprocess->nextInReadyQueue;
-        }
-
-        add_arrivals_to_ready(process_list, &ready);
-
         // operate on blocked list
         if (blocked != NULL) {
             TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED++;
             curprocess = blocked;
 
             // decrement IO burst for all blocked processes
+            // and check blocked processes being ready again
             while (curprocess != NULL) {
                 curprocess->IOBurst--;
                 curprocess->currentIOBlockedTime++;
-                curprocess = curprocess->nextInBlockedList;
-            }
 
-            // add finished IO processes to ready queue, remove from blocked list
-            while (blocked != NULL && blocked->IOBurst == 0) {
-                add_to_ready(&ready, blocked);
-                blocked = blocked->nextInBlockedList;
+                if (curprocess->IOBurst != 0) {
+                    curprocess = curprocess->nextInBlockedList;
+                } else {
+                    // IO finished, move to ready queue, remove from blocked list
+                    fcfs_add_to_ready(&ready, curprocess);
+
+                    // since blocked list is sorted, advance block list
+                    blocked = blocked->nextInBlockedList;
+                    curprocess = blocked;
+                }
             }
         }
+
+        fcfs_add_arrivals_to_ready(process_list, &ready);
 
         // operate on running process
         if (running != NULL) {
@@ -551,11 +489,11 @@ void rr_run(_process process_list[], _process finished_process_list[], FILE *ran
 
         // context switch every quantum cycle or running process stopped
         if (quantum_counter == 0 || running == NULL) {
-            quantum_counter = quantum;
+            quantum_counter = QUANTUM;
 
             // move running process to end of ready queue
             if (running != NULL) {
-                add_to_ready(&ready, running);  // would have already terminated or blocked above
+                fcfs_add_to_ready(&ready, running);  // would have already terminated or blocked above
                 running = NULL;
             }
 
@@ -566,27 +504,6 @@ void rr_run(_process process_list[], _process finished_process_list[], FILE *ran
                 start_process(running, randfile);
             }
         }
-    }
-
-    CURRENT_CYCLE++;
-}
-
-/** First Come First Served (FCFS) **/
-
-void sjf_run(_process process_list[], _process finished_process_list[], FILE *randfile) {
-    _process *running = NULL, *ready = NULL, *blocked = NULL, *curprocess, *shortestjob;
-
-    // ititialize ready queue
-    add_arrivals_to_ready(process_list, &ready);
-
-    // run first process
-    running = ready;
-    ready = running->nextInReadyQueue;
-    start_process(running, randfile);
-
-    // start cycle
-    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES) {
-        CURRENT_CYCLE++;
 
         // increment waiting time for each process in ready queue
         curprocess = ready;
@@ -595,8 +512,64 @@ void sjf_run(_process process_list[], _process finished_process_list[], FILE *ra
             curprocess = curprocess->nextInReadyQueue;
         }
 
-        add_arrivals_to_ready(process_list, &ready);
+        CURRENT_CYCLE++;
+        quantum_counter--;
+    }
+}
 
+/** Shortest Job First (SJF) **/
+
+void sjf_add_to_ready(_process **ready, _process *newlyready) {
+    _process *curprocess = *ready;
+    newlyready->status = 1;
+
+    // ready queue is empty
+    if (curprocess == NULL) {
+        *ready = newlyready;
+        return;
+    }
+
+    // add to front of ready queue
+    // prioritize arrival time, then process id
+    if (newlyready->A < curprocess->A ||
+        (newlyready->A == curprocess->A && newlyready->processID < curprocess->processID)) {
+        newlyready->nextInReadyQueue = *ready;
+        *ready = newlyready;
+        return;
+    }
+
+    // iterate to end of ready queue
+    while (curprocess->nextInReadyQueue != NULL) {
+        // keep queue sorted by above criteria
+        if (newlyready->A < curprocess->nextInReadyQueue->A ||
+            (newlyready->A == curprocess->nextInReadyQueue->A && newlyready->processID < curprocess->nextInReadyQueue->processID)) {
+            // insert newlyready between curprocess and curprocess->nextInReadyQueue
+            newlyready->nextInReadyQueue = curprocess->nextInReadyQueue;
+            curprocess->nextInReadyQueue = newlyready;
+            return;
+        }
+
+        curprocess = curprocess->nextInReadyQueue;
+    }
+
+    // add current process to end of ready queue
+    curprocess->nextInReadyQueue = newlyready;
+}
+
+void sjf_add_arrivals_to_ready(_process process_list[], _process **ready) {
+    // iterate over process list
+    for (int i = 0; i < TOTAL_CREATED_PROCESSES; i++) {
+        if (process_list[i].A == CURRENT_CYCLE) {
+            sjf_add_to_ready(ready, &process_list[i]);
+        }
+    }
+}
+
+void sjf_run(_process process_list[], _process finished_process_list[], FILE *randfile) {
+    _process *running = NULL, *ready = NULL, *blocked = NULL, *curprocess, *shortestjob;
+
+    // start cycle
+    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES) {
         // operate on blocked list
         if (blocked != NULL) {
             TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED++;
@@ -611,10 +584,12 @@ void sjf_run(_process process_list[], _process finished_process_list[], FILE *ra
 
             // add finished IO processes to ready queue, remove from blocked list
             while (blocked != NULL && blocked->IOBurst == 0) {
-                add_to_ready(&ready, blocked);
+                sjf_add_to_ready(&ready, blocked);
                 blocked = blocked->nextInBlockedList;
             }
         }
+
+        sjf_add_arrivals_to_ready(process_list, &ready);
 
         // operate on running process
         if (running != NULL) {
@@ -668,9 +643,16 @@ void sjf_run(_process process_list[], _process finished_process_list[], FILE *ra
             running = shortestjob;
             start_process(running, randfile);
         }
-    }
 
-    CURRENT_CYCLE++;
+        // increment waiting time for each process in ready queue
+        curprocess = ready;
+        while (curprocess != NULL) {
+            curprocess->currentWaitingTime++;
+            curprocess = curprocess->nextInReadyQueue;
+        }
+
+        CURRENT_CYCLE++;
+    }
 }
 
 /** Input validation **/
@@ -736,7 +718,7 @@ int main(int argc, char *argv[])
     FILE *randfile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
     _process *process_list, *finished_process_list;
 
-    process_list = parse_file("sample_io/input/input-1", &TOTAL_CREATED_PROCESSES);
+    process_list = parse_file(argv[1], &TOTAL_CREATED_PROCESSES);
     finished_process_list = (_process*)malloc(TOTAL_CREATED_PROCESSES * sizeof(_process));
 
     // run each scheduler
