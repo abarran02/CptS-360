@@ -12,11 +12,11 @@ void register_process(unsigned int pid)
 
 int main(int argc, char* argv[])
 {
-    const int __expire = 10;
+    int __expire = 10;
     time_t start_time = time(NULL);
 
     if (argc == 2) {
-        expire = atoi(argv[1]);
+        __expire = atoi(argv[1]);
     }
 
     register_process(getpid());
