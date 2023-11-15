@@ -1,11 +1,14 @@
 #define LINUX
 
-#include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/list.h>
+#include <linux/module.h>
 #include <linux/proc_fs.h>
+#include <linux/spinlock.h>
+#include <linux/string.h>
+#include <linux/timer.h>
 #include <linux/uaccess.h>
 #include <linux/version.h>
-#include <linux/string.h>
 
 #include "kmlab_given.h"
 
@@ -19,10 +22,11 @@ MODULE_DESCRIPTION("CPTS360 Lab 4");
 #define PROCFS_DIR "kmlab"
 #define PROCFS_FILE "status"
 
+
 struct process_entry {
     pid_t pid;
     uint32_t cputime;
-    struct process_entry* next;
+    struct list_head list;
 };
 
 /* Global variables */
@@ -30,8 +34,10 @@ struct process_entry {
 static struct proc_dir_entry *proc_dir;
 static struct proc_dir_entry *proc_file;
 
-// head for process linked list
-struct process_entry *head = NULL;
+static struct list_head process_list;
+static struct timer_list proc_timer;
+static struct work_struct work_list;
+static DEFINE_SPINLOCK(spn_lock);
 
 
 /* This function is called then the /proc file is read */
@@ -39,21 +45,16 @@ static ssize_t procfile_read(struct file *file_pointer, char __user *buffer,
                                 size_t buffer_length, loff_t *offset) {
     char km_buffer[256];
     size_t total_bytes = 0;
-    struct process_entry *pcurrent;
+    struct process_entry *pos;
 
-    pcurrent = head;
-
-    while (pcurrent != NULL) {
+    list_for_each_entry(pos, &process_list, list) {
         total_bytes += snprintf(km_buffer, sizeof(km_buffer), "PID%d: %d\n",
-                                pcurrent->pid, pcurrent->cputime);
+                                pos->pid, pos->cputime);
 
         // copy from kernel to user space
         if (copy_to_user(buffer + total_bytes - strnlen(km_buffer, 256), km_buffer, strnlen(km_buffer, 256))) {
             return -EFAULT;
         }
-
-        pcurrent = pcurrent->next;
-        pr_info("%p", pcurrent);
     }
 
     // increment file position and return total bytes written
@@ -66,8 +67,8 @@ static ssize_t procfile_write(struct file *file, const char __user *buff,
                                 size_t len, loff_t *off) {
     int status;
     int pid;
-    char km_buffer[8];
-    struct process_entry *pcurrent;
+    char km_buffer[8] = "";
+    struct process_entry *pnew;
 
     // copy new pid from user space
     if (copy_from_user(km_buffer, buff, len)) {
@@ -79,37 +80,33 @@ static ssize_t procfile_write(struct file *file, const char __user *buff,
         return status;
     }
 
-
-    if (head == NULL) {
-        // empty list, insert new process at beginning
-        head = (struct process_entry *)kzalloc(sizeof(struct process_entry), GFP_KERNEL);
-        head->pid = pid;
-    } else {
-        // traverse linked list and insert at end
-        pcurrent = head;
-
-        while (pcurrent->next != NULL) {
-            pcurrent = pcurrent->next;
-        }
-
-        pcurrent->next = (struct process_entry *)kzalloc(sizeof(struct process_entry), GFP_KERNEL);
-        pcurrent->next->pid = pid;
-    }
+    pnew = (struct process_entry *)kzalloc(sizeof(struct process_entry), GFP_KERNEL);
+    pnew->pid = pid;
+    INIT_LIST_HEAD(&pnew->list);
+    list_add_tail(&pnew->list, &process_list);
 
     return len;
 }
-
 
 static const struct proc_ops proc_file_fops = {
     .proc_read = procfile_read,
     .proc_write = procfile_write,
 };
 
+void timer_callback(struct timer_list *t) {
+    // setup periodic timer, callback every 5 seconds
+    mod_timer(&proc_timer, jiffies + msecs_to_jiffies(5000));
+}
+
 // kmlab_init - Called when module is loaded
 int __init kmlab_init(void) {
     #ifdef DEBUG
     pr_info("KMLAB MODULE LOADING\n");
     #endif
+
+    INIT_LIST_HEAD(&process_list);
+
+    timer_setup(&proc_timer, timer_callback, 0);
 
     // create proc directory
     proc_dir = proc_mkdir(PROCFS_DIR, NULL);
@@ -132,18 +129,15 @@ int __init kmlab_init(void) {
 
 // kmlab_exit - Called when module is unloaded
 void __exit kmlab_exit(void) {
-    struct process_entry *pcurrent, *temp;
-    
+    struct process_entry *pos, *tmp;
+
     #ifdef DEBUG
     pr_info("KMLAB MODULE UNLOADING\n");
     #endif
 
-    // free memory allocated for linked list
-    pcurrent = head;
-    while (pcurrent != NULL) {
-        temp = pcurrent->next;
-        kfree(pcurrent);
-        pcurrent = temp;
+    list_for_each_entry_safe(pos, tmp, &process_list, list) {
+        list_del(&pos->list);
+        kfree(pos);
     }
 
     proc_remove(proc_dir);

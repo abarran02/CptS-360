@@ -1,18 +1,24 @@
-obj-m += kmlab.o
+EXTRA_CFLAGS +=
+APP_EXTRA_FLAGS:= -O2 -ansi -pedantic
+KERNEL_SRC:= /lib/modules/$(shell uname -r)/build
+SUBDIR= $(PWD)
+GCC:=gcc
+RM:=rm
 
-PWD := $(CURDIR)
+.PHONY : clean
 
-ifeq ($(CONFIG_STATUS_CHECK_GCC),y)
-CC=$(STATUS_CHECK_GCC)
-ccflags-y += -O2 -ansi -pedantic
-endif
+all: modules app
 
-all:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build CC=$(CC) M=$(PWD) modules
+obj-m:= kmlab.o
+
+modules:
+	$(MAKE) -C $(KERNEL_SRC) M=$(SUBDIR) modules
+
+app: userapp.c userapp.h
+	$(GCC) -o userapp userapp.c
 
 clean:
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build CC=$(CC) M=$(PWD) clean
-	$(RM) other/cat_noblock *.plist
 
 indent:
 	clang-format -i *.[ch]

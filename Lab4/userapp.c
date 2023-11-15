@@ -1,17 +1,20 @@
 #include "userapp.h"
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-// Additional headers as needed
+#include <time.h>
+#include <unistd.h>
 
 
 // Register process with kernel module
-void register_process(unsigned int pid)
-{
-     // Insert your code here ...
+void register_process(unsigned int pid) {
+    char command[256];
+    snprintf(command, 256, "echo \"%d\" > /proc/kmlab/status", pid);
+
+    system(command);
 }
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
     int __expire = 10;
     time_t start_time = time(NULL);
 
