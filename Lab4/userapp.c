@@ -5,11 +5,13 @@
 #include <time.h>
 #include <unistd.h>
 
+#define MAX_CMD_LEN 256
+
 
 // Register process with kernel module
 void register_process(unsigned int pid) {
-    char command[256];
-    snprintf(command, 256, "echo \"%d\" > /proc/kmlab/status", pid);
+    char command[MAX_CMD_LEN] = "";
+    snprintf(command, MAX_CMD_LEN, "echo \"%d\" > /proc/kmlab/status", pid);
 
     system(command);
 }

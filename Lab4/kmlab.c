@@ -1,14 +1,13 @@
 #define LINUX
 
-#include <linux/kernel.h>
-#include <linux/list.h>
 #include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
 #include <linux/proc_fs.h>
-#include <linux/spinlock.h>
-#include <linux/string.h>
-#include <linux/timer.h>
+#include <linux/slab.h>
 #include <linux/uaccess.h>
-#include <linux/version.h>
+#include <linux/workqueue.h>
+#include <linux/spinlock.h>
 
 #include "kmlab_given.h"
 
@@ -21,7 +20,7 @@ MODULE_DESCRIPTION("CPTS360 Lab 4");
 #define PROCFS_MAX_SIZE 1024
 #define PROCFS_DIR "kmlab"
 #define PROCFS_FILE "status"
-
+#define MAX_STAT_LEN 32
 
 struct process_entry {
     pid_t pid;
@@ -30,48 +29,72 @@ struct process_entry {
 };
 
 /* Global variables */
-// holds /proc directory
-static struct proc_dir_entry *proc_dir;
-static struct proc_dir_entry *proc_file;
+static struct proc_dir_entry *proc_dir, *proc_file;
 
-static struct list_head process_list;
+LIST_HEAD(process_list);
 static struct timer_list proc_timer;
 static struct work_struct work_list;
 static DEFINE_SPINLOCK(spn_lock);
 
 
-/* This function is called then the /proc file is read */
-static ssize_t procfile_read(struct file *file_pointer, char __user *buffer,
-                                size_t buffer_length, loff_t *offset) {
-    char km_buffer[256];
-    size_t total_bytes = 0;
+static ssize_t procfile_read(struct file *file, char __user *buffer,
+                                size_t len, loff_t *offset) {
     struct process_entry *pos;
+    char *km_buffer;
+    unsigned long flags;
+    size_t list_count = 0, size = 0, total_bytes = 0;
 
-    list_for_each_entry(pos, &process_list, list) {
-        total_bytes += snprintf(km_buffer, sizeof(km_buffer), "PID%d: %d\n",
-                                pos->pid, pos->cputime);
-
-        // copy from kernel to user space
-        if (copy_to_user(buffer + total_bytes - strnlen(km_buffer, 256), km_buffer, strnlen(km_buffer, 256))) {
-            return -EFAULT;
-        }
+    // helps prevent infinite loops, check if data is already read
+    if (*offset) {
+        return 0;
     }
 
-    // increment file position and return total bytes written
+    // count items in list to allocate memory for printing
+    spin_lock_irqsave(&spn_lock, flags);
+    list_for_each_entry(pos, &process_list, list) {
+        list_count++;
+    }
+    spin_unlock_irqrestore(&spn_lock, flags);
+
+    size = list_count * MAX_STAT_LEN;
+    km_buffer = kmalloc(size, GFP_KERNEL);
+    
+    // iterate over list and add each PID and CPU time to buffer
+    // count total bytes to copy to user later
+    spin_lock_irqsave(&spn_lock, flags);
+    list_for_each_entry(pos, &process_list, list) {
+        total_bytes += scnprintf(km_buffer + total_bytes, size - total_bytes, 
+            "PID%d: %u\n", pos->pid, pos->cputime);
+        
+        if (total_bytes >= size) {
+            break;
+        } 
+    }
+    spin_unlock_irqrestore(&spn_lock, flags);
+
+    // cannot copy more data than given buffer
+    total_bytes = (total_bytes < len) ? total_bytes : len;
+    
+    // ensure data is successfully copied
+    if (copy_to_user(buffer, km_buffer, total_bytes)) {
+        return -EFAULT;
+    }
+    
     *offset += total_bytes;
+    
     return total_bytes;
 }
 
 /* This function is called with the /proc file is written. */
-static ssize_t procfile_write(struct file *file, const char __user *buff,
-                                size_t len, loff_t *off) {
+static ssize_t procfile_write(struct file *file, const char __user *buffer,
+                                size_t len, loff_t *offset) {
     int status;
     int pid;
     char km_buffer[8] = "";
     struct process_entry *pnew;
 
     // copy new pid from user space
-    if (copy_from_user(km_buffer, buff, len)) {
+    if (copy_from_user(km_buffer, buffer, len)) {
         return -EFAULT;
     }
 
