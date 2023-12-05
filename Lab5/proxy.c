@@ -7,10 +7,16 @@
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
 
-/* You won't lose style points for including this long line in your code */
-static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
+// default headers
+static const char *user_agent_def = "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
 static const char *connection_hdr = "Connection: close\r\n";
 static const char *proxy_connection_hdr = "Proxy-Connection: close\r\n";
+
+static const char *user_agent_key = "User-Agent: ";
+static const char *user_agent_curl = "User-Agent: curl/";
+static const char *connection_key = "Connection: ";
+static const char *proxy_connection_key = "Proxy-Connection: ";
+static const char *host_key = "Host: ";
 
 void parse_uri(char *uri, char *hostname, unsigned int *port, char *query) {
     char *ptr = uri + 7;  // skip characters of http://
@@ -32,44 +38,82 @@ void parse_uri(char *uri, char *hostname, unsigned int *port, char *query) {
     }
 }
 
-void create_header_string(char *headers, char *hostname, char *query) {
-    char request_hdr[MAXLINE], host_hdr[MAXLINE], std_hdr[MAXLINE];
-    
-    sprintf(request_hdr, "GET %s HTTP/1.0\r\n", query);
-    sprintf(host_hdr, "Host: %s\r\n", hostname);
+int has_key(char *header, const char *key) {
+    int len = strlen(key);
+    return strncmp(header, key, len) == 0;
+}
 
+int is_other_header(char *header) {
+    return !has_key(header, user_agent_key) || !has_key(header, connection_key) ||
+        !has_key(header, proxy_connection_key);
+}
+
+void create_header_string (rio_t rio, char *headers, char *hostname, char *query) {
+    char buf[MAXLINE], request_hdr[MAXLINE], std_hdr[MAXLINE], 
+        user_agent_hdr[MAXLINE] = "", host_hdr[MAXLINE] = "", additional_hdr[MAXLINE] = "";
+    int host_flag = 1, user_agent_flag = 1;
+
+    sprintf(request_hdr, "GET %s HTTP/1.0\r\n", query);
+    
     // all default value headers
-    sprintf(std_hdr, "%s%s%s",
-        user_agent_hdr,
+    sprintf(std_hdr, "%s%s\r\n",
         connection_hdr,
         proxy_connection_hdr
     );
 
-    // combine defaults with request and host
-    sprintf(headers, "%s%s%s",
+    // iterate over existing headers of request to the proxy
+    while (Rio_readlineb(&rio, buf, MAXLINE) > 0) {
+        if (strcmp(buf, "\r\n") == 0) {
+            // reached end of all headers
+            break;
+        } else if (has_key(buf, host_key)) {
+            // browser overrides Host header
+            strcpy(host_hdr, buf);
+            host_flag = 0;
+        } else if (has_key(buf, user_agent_key) && !has_key(buf, user_agent_curl)) {
+            // browser overrides User Agent, but don't use cURL default
+            strcpy(user_agent_hdr, buf);
+            user_agent_flag = 0;
+        } else if (is_other_header(buf)) {
+            // any other headers that a browser might include, like Cookies
+            strcat(additional_hdr, buf);
+        }
+    }
+
+    // if the Host or User Agent were not set by existing headers
+    if (host_flag) {
+        sprintf(host_hdr, "Host: %s\r\n", hostname);
+    }
+    if (user_agent_flag) {
+        strcpy(user_agent_hdr, user_agent_def);
+    }
+
+    // combine all headers
+    sprintf(headers, "%s%s%s%s%s",
         request_hdr,
         host_hdr,
-        std_hdr
+        std_hdr,
+        user_agent_hdr,
+        additional_hdr
     );
 }
 
-int forward_request(char *uri) {
-    int clientfd, serverfd;
+void forward_request(int clientfd, rio_t rio, char *uri) {
+    int serverfd;
     char hostname[MAXLINE], port_str[8], query[MAXLINE];
     char headers[MAXLINE];
     char response[MAXLINE];
     unsigned int port;
-    rio_t rio;
-    size_t len, object_size;
+    size_t len;
 
     parse_uri(uri, hostname, &port, query);
     sprintf(port_str, "%d", port);
 
     if ((serverfd = open_clientfd(hostname, port_str)) < 0) {
-        return -1;
+        return;
     }
 
-    create_header_string(headers, hostname, query);
+    create_header_string(rio, headers, hostname, query);
 
     // write to server socket
     Rio_readinitb(&rio, serverfd);
@@ -77,32 +121,30 @@ int forward_request(char *uri) {
 
     // read server response
     while((len = Rio_readlineb(&rio, response, MAXLINE)) != 0){
-        continue;
+        Rio_writen(clientfd, response, len);
     }
 
-    printf("%s", response);
-
-    return 0;
+    Close(serverfd);
 }
 
-void handle_proxy_request(int fd) {
-    struct stat sbuf;
+void handle_proxy_request(int clientfd) {
     char buf[MAXLINE], method[8], uri[MAXLINE], version[8];
     rio_t rio;
 
-    Rio_readinitb(&rio, fd);
+    Rio_readinitb(&rio, clientfd);
     if (!Rio_readlineb(&rio, buf, MAXLINE)) {
         return;
     }
-    printf("%s\n", buf);
+    printf("%s", buf);
     sscanf(buf, "%s %s %s", method, uri, version);
-    if (!strcasecmp(method, "GET")) {
+
+    if (strcasecmp(method, "GET") != 0) {
         // this will also discard HTTPS requests, which use CONNECT
-        printf("Proxy can only handle HTTP GET requests");
+        printf("Proxy can only handle HTTP GET requests\n");
         return;
     }
 
-    forward_request(uri);
+    forward_request(clientfd, rio, uri);
 }
 
 int main(int argc, char **argv) {
