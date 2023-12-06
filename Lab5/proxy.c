@@ -13,7 +13,6 @@ static const char *connection_hdr = "Connection: close\r\n";
 static const char *proxy_connection_hdr = "Proxy-Connection: close\r\n";
 
 static const char *user_agent_key = "User-Agent: ";
-static const char *user_agent_curl = "User-Agent: curl/";
 static const char *connection_key = "Connection: ";
 static const char *proxy_connection_key = "Proxy-Connection: ";
 static const char *host_key = "Host: ";
@@ -44,8 +43,8 @@ int has_key(char *header, const char *key) {
 }
 
 int is_other_header(char *header) {
-    return !has_key(header, user_agent_key) || !has_key(header, connection_key) ||
-        !has_key(header, proxy_connection_key);
+    return !(has_key(header, user_agent_key) || has_key(header, connection_key) ||
+        has_key(header, proxy_connection_key));
 }
 
 void create_header_string (rio_t rio, char *headers, char *hostname, char *query) {
@@ -56,27 +55,30 @@ void create_header_string (rio_t rio, char *headers, char *hostname, char *query
     sprintf(request_hdr, "GET %s HTTP/1.0\r\n", query);
     
     // all default value headers
-    sprintf(std_hdr, "%s%s\r\n",
+    sprintf(std_hdr, "%s%s",
         connection_hdr,
         proxy_connection_hdr
     );
 
-    // iterate over existing headers of request to the proxy
-    while (Rio_readlineb(&rio, buf, MAXLINE) > 0) {
-        if (strcmp(buf, "\r\n") == 0) {
-            // reached end of all headers
-            break;
-        } else if (has_key(buf, host_key)) {
-            // browser overrides Host header
-            strcpy(host_hdr, buf);
-            host_flag = 0;
-        } else if (has_key(buf, user_agent_key) && !has_key(buf, user_agent_curl)) {
-            // browser overrides User Agent, but don't use cURL default
-            strcpy(user_agent_hdr, buf);
-            user_agent_flag = 0;
-        } else if (is_other_header(buf)) {
-            // any other headers that a browser might include, like Cookies
-            strcat(additional_hdr, buf);
+    // check if the client sent any headers, readlineb will hang otherwise
+    if (strcmp(rio.rio_bufptr, "") != 0) {
+        // iterate over existing headers of request to the proxy
+        while (Rio_readlineb(&rio, buf, MAXLINE) != 0) {
+            if (strcmp(buf, "\r\n") == 0) {
+                // reached end of all headers
+                break;
+            } else if (has_key(buf, host_key)) {
+                // browser overrides Host header
+                strcpy(host_hdr, buf);
+                host_flag = 0;
+            } else if (has_key(buf, user_agent_key)) {
+                // browser overrides User Agent header
+                strcpy(user_agent_hdr, buf);
+                user_agent_flag = 0;
+            } else if (is_other_header(buf)) {
+                // any other headers that a browser might include, like Cookies
+                strcat(additional_hdr, buf);
+            }
         }
     }
 
@@ -89,7 +91,7 @@ void create_header_string (rio_t rio, char *headers, char *hostname, char *query
     }
 
     // combine all headers
-    sprintf(headers, "%s%s%s%s%s",
+    sprintf(headers, "%s%s%s%s%s\r\n",
         request_hdr,
         host_hdr,
         std_hdr,
@@ -101,8 +103,7 @@ void create_header_string (rio_t rio, char *headers, char *hostname, char *query
 void forward_request(int clientfd, rio_t rio, char *uri) {
     int serverfd;
     char hostname[MAXLINE], port_str[8], query[MAXLINE];
-    char headers[MAXLINE];
-    char response[MAXLINE];
+    char headers[MAXLINE] = "", response[MAXLINE] = "";
     unsigned int port;
     size_t len;
 
@@ -132,6 +133,8 @@ void handle_proxy_request(int clientfd) {
     rio_t rio;
 
     Rio_readinitb(&rio, clientfd);
+    memset(rio.rio_buf, 0, 8192);  // rio object persists some data between requests
+    
     if (!Rio_readlineb(&rio, buf, MAXLINE)) {
         return;
     }
@@ -159,7 +162,7 @@ int main(int argc, char **argv) {
     }
 
     if ((listenfd = open_listenfd(argv[1])) < 0) {
-        printf("Unable to open port %s", argv[1]);
+        printf("Unable to open port %s\n", argv[1]);
         return -1;
     }
 
