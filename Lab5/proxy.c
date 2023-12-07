@@ -17,8 +17,18 @@ static const char *connection_key = "Connection: ";
 static const char *proxy_connection_key = "Proxy-Connection: ";
 static const char *host_key = "Host: ";
 
+int has_key(char *header, const char *key) {
+    int len = strlen(key);
+    return strncmp(header, key, len) == 0;
+}
+
 void parse_uri(char *uri, char *hostname, unsigned int *port, char *query) {
-    char *ptr = uri + 7;  // skip characters of http://
+    char *ptr;
+    if (has_key(uri, "http://")) {
+        ptr = uri + 7;  // skip characters of http://
+    } else {
+        ptr = uri;
+    }
 
     // iterate until port or query section
     while (*ptr != ':' && *ptr != '/') {
@@ -37,28 +47,21 @@ void parse_uri(char *uri, char *hostname, unsigned int *port, char *query) {
     }
 }
 
-int has_key(char *header, const char *key) {
-    int len = strlen(key);
-    return strncmp(header, key, len) == 0;
-}
-
 int is_other_header(char *header) {
     return !(has_key(header, user_agent_key) || has_key(header, connection_key) ||
         has_key(header, proxy_connection_key));
 }
 
 void create_header_string (rio_t rio, char *headers, char *hostname, char *query) {
-    char buf[MAXLINE], request_hdr[MAXLINE], std_hdr[MAXLINE], 
-        user_agent_hdr[MAXLINE] = "", host_hdr[MAXLINE] = "", additional_hdr[MAXLINE] = "";
+    char buf[MAXLINE], host_hdr[MAXLINE] = "";
     int host_flag = 1, user_agent_flag = 1;
 
-    sprintf(request_hdr, "GET %s HTTP/1.0\r\n", query);
-    
+    // HTTP request header
+    sprintf(headers, "GET %s HTTP/1.0\r\n", query);
+
     // all default value headers
-    sprintf(std_hdr, "%s%s",
-        connection_hdr,
-        proxy_connection_hdr
-    );
+    strcat(headers, connection_hdr);
+    strcat(headers, proxy_connection_hdr);
 
     // check if the client sent any headers, readlineb will hang otherwise
     if (strcmp(rio.rio_bufptr, "") != 0) {
@@ -69,15 +72,15 @@ void create_header_string (rio_t rio, char *headers, char *hostname, char *query
                 break;
             } else if (has_key(buf, host_key)) {
                 // browser overrides Host header
-                strcpy(host_hdr, buf);
+                strcat(headers, buf);
                 host_flag = 0;
             } else if (has_key(buf, user_agent_key)) {
                 // browser overrides User Agent header
-                strcpy(user_agent_hdr, buf);
+                strcat(headers, buf);
                 user_agent_flag = 0;
             } else if (is_other_header(buf)) {
                 // any other headers that a browser might include, like Cookies
-                strcat(additional_hdr, buf);
+                strcat(headers, buf);
             }
         }
     }
@@ -85,19 +88,14 @@ void create_header_string (rio_t rio, char *headers, char *hostname, char *query
     // if the Host or User Agent were not set by existing headers
     if (host_flag) {
         sprintf(host_hdr, "Host: %s\r\n", hostname);
+        strcat(headers, host_hdr);
     }
     if (user_agent_flag) {
-        strcpy(user_agent_hdr, user_agent_def);
+        strcat(headers, user_agent_def);
     }
 
-    // combine all headers
-    sprintf(headers, "%s%s%s%s%s\r\n",
-        request_hdr,
-        host_hdr,
-        std_hdr,
-        user_agent_hdr,
-        additional_hdr
-    );
+    // CRLF indicate end of request
+    strcat(headers, "\r\n");
 }
 
 void forward_request(int clientfd, rio_t rio, char *uri) {
@@ -110,6 +108,7 @@ void forward_request(int clientfd, rio_t rio, char *uri) {
     parse_uri(uri, hostname, &port, query);
     sprintf(port_str, "%d", port);
 
+    // open connection to destination server
     if ((serverfd = open_clientfd(hostname, port_str)) < 0) {
         return;
     }
@@ -122,7 +121,7 @@ void forward_request(int clientfd, rio_t rio, char *uri) {
 
     // read server response
     while((len = Rio_readlineb(&rio, response, MAXLINE)) != 0){
-        Rio_writen(clientfd, response, len);
+        Rio_writen(clientfd, response, len);  // write server response back to client
     }
 
     Close(serverfd);
@@ -134,7 +133,8 @@ void handle_proxy_request(int clientfd) {
 
     Rio_readinitb(&rio, clientfd);
     memset(rio.rio_buf, 0, 8192);  // rio object persists some data between requests
-    
+
+    // receive HTTP request
     if (!Rio_readlineb(&rio, buf, MAXLINE)) {
         return;
     }
@@ -158,12 +158,12 @@ int main(int argc, char **argv) {
 
     if (argc != 2) {
         fprintf(stderr, "usage: %s <port>\n", argv[0]);
-        exit(1);
+        return 1;
     }
 
     if ((listenfd = open_listenfd(argv[1])) < 0) {
         printf("Unable to open port %s\n", argv[1]);
-        return -1;
+        return 1;
     }
 
     while (1) {
